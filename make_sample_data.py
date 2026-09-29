@@ -372,6 +372,16 @@ def install(force: bool) -> None:
     build_outputs(force)
 
 
+def ensure_installed() -> bool:
+    """Install the sample set on first start when the register is missing, as
+    on a fresh hosted demo. Never overwrites: a folder holding real workbooks
+    is left exactly as it is. True if anything was installed."""
+    if (HERE / ATTENDANCE_WB).exists():
+        return False
+    install(force=False)
+    return True
+
+
 def build_outputs(force: bool) -> None:
     """Classroom seating for both batches, and the two scheduled exams, built
     by the toolkit's own functions - the same calls the dashboard makes."""

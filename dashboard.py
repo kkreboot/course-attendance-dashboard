@@ -63,6 +63,20 @@ except ImportError:
 st.set_page_config(page_title=f"{C.COURSE_CODE} Control Panel", page_icon="🎓", layout="wide",
                    initial_sidebar_state="expanded")
 
+
+@st.cache_resource(show_spinner="Installing the sample data (first start only)...")
+def _bootstrap_sample_data() -> bool:
+    """A fresh clone or a hosted demo has no workbooks yet: install the
+    invented set from sample_data/. Never touches a workbook already there."""
+    import make_sample_data
+    return make_sample_data.ensure_installed()
+
+
+try:
+    _bootstrap_sample_data()
+except Exception as e:                              # noqa: BLE001 - shown verbatim
+    st.error(f"Could not install the sample data: {type(e).__name__}: {e}")
+
 # Colours and fonts are design tokens in .streamlit/config.toml, including a
 # full dark palette. What's left here is layout and the few components
 # Streamlit has no token for - written against the *active* theme, so dark
