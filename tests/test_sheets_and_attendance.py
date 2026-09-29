@@ -22,7 +22,7 @@ def _alloc(n=12):
 
 def test_sheet_rows_match_the_allocation_in_seat_order(tmp_path):
     a = _alloc()
-    tpl = sheetmod.build_all(a, str(tmp_path), course="DEMO101", room="LHC110", session="S1")
+    tpl = sheetmod.build_all(a, str(tmp_path), course=C.COURSE, room="LHC110", session="S1")
     info = json.loads(open(tpl).read())
     rows = info["blocks"]["A"]["rows"]
     assert [r["roll"] for r in rows] == list(a.sort_values(["SeatRow", "SeatCol"]).Roll)
@@ -32,7 +32,7 @@ def test_sheet_rows_match_the_allocation_in_seat_order(tmp_path):
 def test_attendance_column_is_opt_in_and_labelled(tmp_path):
     a = _alloc()
     att = {r: {"percent": 50.0, "present": 1, "held": 2} for r in a.Roll}
-    tpl = sheetmod.build_all(a, str(tmp_path), course="DEMO101", room="LHC110", session="S1",
+    tpl = sheetmod.build_all(a, str(tmp_path), course=C.COURSE, room="LHC110", session="S1",
                              attendance=att, att_asof="24 Aug 2026")
     rows = json.loads(open(tpl).read())["blocks"]["A"]["rows"]
     assert all(r["attendance"] == "50%  1/2" for r in rows)
@@ -45,9 +45,9 @@ def test_missing_student_prints_a_dash_not_a_wrong_number():
 
 def test_stale_block_pdfs_are_cleared(tmp_path):
     a = _alloc()
-    sheetmod.build_all(a, str(tmp_path), course="DEMO101", room="LHC110", session="S1")
+    sheetmod.build_all(a, str(tmp_path), course=C.COURSE, room="LHC110", session="S1")
     (tmp_path / "signature_block_Z.pdf").write_bytes(b"%PDF-1.4 stale")
-    sheetmod.build_all(a, str(tmp_path), course="DEMO101", room="LHC110", session="S1")
+    sheetmod.build_all(a, str(tmp_path), course=C.COURSE, room="LHC110", session="S1")
     assert not (tmp_path / "signature_block_Z.pdf").exists(), \
         "a sheet for a block nobody sits in was left where it could be printed"
 

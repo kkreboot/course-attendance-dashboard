@@ -424,7 +424,7 @@ COURSE_SMTP_PORT=587
 COURSE_SMTP_USER=you@example.edu
 COURSE_SMTP_PASSWORD=abcdefghijklmnop
 COURSE_SMTP_FROM=you@example.edu
-COURSE_SMTP_FROM_NAME=DEMO101 Course Office
+COURSE_SMTP_FROM_NAME=PHY101 Course Office
 EOF
 chmod 600 ~/.course_dashboard_smtp.env
 ```

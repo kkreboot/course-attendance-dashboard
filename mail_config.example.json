@@ -3,7 +3,7 @@
   "port": 587,
   "user": "your.address@example.edu",
   "from": "your.address@example.edu",
-  "from_name": "DEMO101 Course Office",
+  "from_name": "PHY101 Course Office",
   "reply_to": "",
   "bcc": ""
 }
