@@ -190,7 +190,9 @@ fully stopped and restarted, not just left to auto-reload.
 | `out/transitions.csv` | Append-only history of every move made through tab 5 - the source for "who needs telling". Written by `seating.log_transition`, never rewritten by a regeneration. |
 | `checks.py` | Every invariant in one pass (`run_all`), behind the 🩺 Health check page; also runnable as `python checks.py` (exit 1 on any failure). |
 | `history.py` | Rolling snapshots in `out/.history/*.zip` taken before each write, plus the `state/` baseline drift detection compares against. |
-| `lockfile.py` | Advisory "another machine has this open" marker for the Dropbox folder. |
+| `lockfile.py` | Advisory "another machine has this open" marker for the Dropbox folder. An entry from a process that is gone on *this* machine (a Ctrl-C'd dashboard) is dropped, so a restart doesn't warn about itself; each machine is named once. |
+| `lookup.py` | Read-only "everything about one student" (`directory`, `search`, `student_record`): classroom seat, exam seats, attendance with class-by-class marks, moves, mail log. Behind the Student lookup page. |
+| `bundle.py` | Every printable for one cohort or exam as one ZIP (`cohort_bundle`, `exam_bundle`) with a MANIFEST.txt; files built before the folder's `allocation.csv` are flagged as stale. Overview page. |
 | `posters.py` | Hall-door poster (QR + block map) and `exam_pack` - the printable exam PDF: TA posting cover, per-block seat grids, per-room signature lists. |
 | `tests/` | pytest suite over seating, mail, history, sheets and exams - plus an AppTest smoke test that renders every dashboard page. |
 | `mailer.py` | Student mail-out: `<enrolment>@EMAIL_DOMAIN` addresses, transition/exam message builders, SMTP send + `out/mail_log.csv`. No secrets in this folder - the password is env-only. |
@@ -905,6 +907,34 @@ drawing parts). The safe recipe, used for the B22PH903 fix: snapshot via
 cells that are *empty* (`<c r="E189" s="18"/>` - refuse if a value is
 present), reuse an existing `sharedStrings` index (`N/A` is 26, `Y` 61, `N`
 62, `E` 298), then verify part-by-part that nothing else moved.
+
+## Trend, forecast and the per-student marks
+
+`attendance_report.load` gives totals per student; `load_marks` gives every
+(student, class) mark - `Y`/`N`/`E`/`NA`/blank - which the Student lookup page
+and the trend chart read. `batch_trend` turns marks into turnout per class and
+a running (cumulative) percentage per batch; a class counts as held once anyone
+has a mark, so the pre-dated future columns stay off the chart. On the combined
+sheet the batch comes from its `Batch` column, so one read gives both lines.
+
+The at-risk forecast (`attendance_report.at_risk`) lists students **on or above**
+the threshold who would fall below it by missing the next N classes. Its
+"can miss" figure is `mailer.misses_allowed`, the mirror of
+`classes_to_recover` - same module, same arithmetic, so the forecast and the
+shortfall notice cannot disagree. The horizon is capped at the classes left.
+
+## Gotcha: cohort folder ↔ register sheet is matched by name
+
+`out/english` reads the `English` sheet because the names match, ignoring case
+(`attendance_report.sheet_for_cohort`, `checks.sheet_for`). `checks.COHORT_SHEET`
+used to be a hardcoded `{"english": "English", "hindi": "Hindi"}` table, so any
+other course failed "Register sheet present" out of the box; it is now only an
+override for a folder that can't be named after its sheet. Likewise
+`reorder_block_in_roll_order(mode="register")` no longer guesses the sheet from
+the room name: given no `reg_order` it ranks over every batch sheet (rolls are
+unique across batches, so the order within a block is the same). The Move page's
+reorder defaults to register order - the two roll-number orders it offered
+before put blocks out of the order the health check verifies.
 
 ## Gotcha: the Class Attendance workbook's columns drift
 

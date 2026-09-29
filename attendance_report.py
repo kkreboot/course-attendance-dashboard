@@ -54,7 +54,7 @@ EXCUSED_MODE = "exclude"
 # before they were on the roll. Like a blank it counts towards nothing, but
 # unlike a blank it is *deliberate*, and the health check needs to tell the
 # two apart or every late joiner looks like a data-entry gap.
-NOT_APPLICABLE = {"N/A", "NA", "-", "-"}
+NOT_APPLICABLE = {"N/A", "NA", "-", "\u2013", "\u2014"}   # hyphen, en dash, em dash
 
 
 def sheet_names(path: str) -> list[str]:
@@ -108,6 +108,18 @@ def cohort_sheets(path: str) -> list[str]:
 
 def combined_sheets(path: str) -> list[str]:
     return [s for s in sheet_names(path) if is_register(path, s) and is_combined(path, s)]
+
+
+def sheet_for_cohort(path: str, cohort: str) -> str | None:
+    """The batch sheet a cohort folder reads from: `out/english` -> `English`.
+
+    Matched by name, ignoring case, among the cohort sheets - the same rule the
+    Overview page uses. The health check used to keep its own
+    `{"english": "English", "hindi": "Hindi"}` table, so a course whose batches
+    were called anything else failed "Register sheet present" out of the box.
+    """
+    want = str(cohort).strip().lower()
+    return next((s for s in cohort_sheets(path) if s.strip().lower() == want), None)
 
 
 # The workbook also carries a hand-built `Dashboard` sheet: the course's own
@@ -308,3 +320,109 @@ def percent_map(path: str, sheet: str,
                                         excused=int(r.Excused),
                                         not_applicable=int(r.NotApplicable))
     return out, asof
+
+
+# ─────────────────────── per-student marks, trends, forecast ───────────────────────
+def load_marks(path: str, sheet: str) -> pd.DataFrame:
+    """Every student's mark for every dated class, one row per (student, class).
+
+    Columns: Roll, Name, Batch, Session, Date, Mark. `Mark` is `Y`, `N`, `E`,
+    `NA` (a deliberate not-applicable) or `""` (blank - not marked, usually a
+    class not yet held). `Batch` is the sheet's own Batch column on the combined
+    sheet and the sheet name on a batch sheet, so a frame read from either
+    groups the same way.
+
+    `load` answers "how is this student doing"; this answers "which classes did
+    they miss", which is the question behind every attendance query.
+    """
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=False)
+    ws = wb[sheet]
+    hdr = _header_cols(ws)
+    try:
+        roll_col, name_col = hdr["roll number"], hdr["name"]
+        pct_col = hdr["%"] if "%" in hdr else hdr[" %"]
+    except KeyError as e:
+        raise ValueError(f"{sheet!r} sheet is missing an expected header column: {e}. "
+                         f"Found headers: {sorted(hdr)}") from None
+    batch_col = hdr.get("batch")
+    cols = sorted(_session_columns(ws, pct_col + 1), key=lambda t: t[1])
+    rows = []
+    for r in range(FIRST_DATA_ROW, ws.max_row + 1):
+        roll = ws.cell(row=r, column=roll_col).value
+        if not roll:
+            continue
+        name = str(ws.cell(row=r, column=name_col).value or "").strip()
+        batch = (str(ws.cell(row=r, column=batch_col).value or "").strip()
+                 if batch_col else "") or sheet
+        for c, d, label in cols:
+            v = ws.cell(row=r, column=c).value
+            v = str(v).strip().upper() if v is not None else ""
+            mark = v if v in ("Y", "N", "E") else ("NA" if v in NOT_APPLICABLE else
+                                                   ("" if not v else v))
+            rows.append(dict(Roll=str(roll).strip(), Name=name, Batch=batch,
+                             Session=label, Date=d.date(), Mark=mark))
+    return pd.DataFrame(rows, columns=["Roll", "Name", "Batch", "Session", "Date", "Mark"])
+
+
+def batch_trend(marks: pd.DataFrame, excused: str = EXCUSED_MODE) -> pd.DataFrame:
+    """Turnout per class held, per batch, from `load_marks`.
+
+    Columns: Batch, Date, Session, Present, Absent, Excused, Percent (that
+    class's turnout) and Cumulative (the batch's attendance over every class up
+    to and including this one - the figure a student's percentage is measured
+    against). A class counts as held for a batch once anyone in it has a
+    Y/N/E mark, so pre-dated future columns stay off the chart.
+    """
+    cols = ["Batch", "Date", "Session", "Present", "Absent", "Excused", "Percent", "Cumulative"]
+    if marks is None or marks.empty:
+        return pd.DataFrame(columns=cols)
+    m = marks[marks.Mark.isin(["Y", "N", "E"])]
+    if m.empty:
+        return pd.DataFrame(columns=cols)
+    g = (m.assign(Y=(m.Mark == "Y").astype(int), N=(m.Mark == "N").astype(int),
+                  E=(m.Mark == "E").astype(int))
+          .groupby(["Batch", "Date", "Session"], sort=True)[["Y", "N", "E"]].sum()
+          .reset_index().sort_values(["Batch", "Date"]))
+    credited = g.Y + (g.E if excused == "present" else 0)
+    counted = credited + g.N
+    g["Percent"] = (credited / counted.where(counted > 0)) * 100
+    cum_c = credited.groupby(g.Batch).cumsum()
+    cum_n = counted.groupby(g.Batch).cumsum()
+    g["Cumulative"] = (cum_c / cum_n.where(cum_n > 0)) * 100
+    g = g.rename(columns={"Y": "Present", "N": "Absent", "E": "Excused"})
+    return g[cols].reset_index(drop=True)
+
+
+def at_risk(students: pd.DataFrame, threshold: float, horizon: int,
+            remaining: int | None = None) -> pd.DataFrame:
+    """Students on or above `threshold` who would fall below it by missing
+    the next `horizon` classes in a row.
+
+    Uses `mailer.misses_allowed`, the counterpart of the number a shortfall
+    notice quotes, so "can miss 2 more" here and "attend the next 6" in a mail
+    come from the same arithmetic. `remaining` (classes still to be held)
+    caps the horizon: nobody is at risk from classes that will never happen.
+    Pass None when the course length isn't known.
+
+    Adds CanMiss (classes they can still miss and stay on the threshold) and
+    IfMissed (their percentage after missing `horizon` in a row). Sorted most
+    exposed first.
+    """
+    import mailer  # local import: the one place this module needs mailer
+
+    cols = list(students.columns) + ["CanMiss", "IfMissed"]
+    horizon = int(horizon)
+    if remaining is not None:
+        horizon = min(horizon, max(0, int(remaining)))
+    if students is None or students.empty or horizon <= 0:
+        return pd.DataFrame(columns=cols)
+    df = students[students.Held > 0].copy()
+    df = df[df.Percent.notna() & (df.Percent >= float(threshold) - 1e-9)]
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    credited = (df.Held - df.Absent).astype(int)
+    df["CanMiss"] = [mailer.misses_allowed(c, int(a), threshold)
+                     for c, a in zip(credited, df.Absent)]
+    df["IfMissed"] = credited / (df.Held + horizon) * 100
+    df = df[df.CanMiss < horizon]
+    return df.sort_values(["CanMiss", "Percent"]).reset_index(drop=True)

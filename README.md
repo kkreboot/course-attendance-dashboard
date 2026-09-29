@@ -22,11 +22,17 @@ data; mail can be composed and rehearsed but never sent).
 - **Exam seating**: spaced seating across several rooms, seat maps for the
   notice board, a printable invigilator pack and TA duty postings.
 - **Attendance**: percentages and the below-threshold list read straight from
-  the register workbook, with a PDF report for handing over.
+  the register workbook, a per-batch trend chart against the threshold, an
+  **at-risk forecast** (students still above the line who would drop below it
+  by missing the next few classes), and a PDF report for handing over.
+- **Student lookup**: one student's classroom seat, exam seats, class-by-class
+  attendance, moves and mail on one page, with a summary to paste into a reply.
 - **Student mail**: seating, exam and attendance notices composed per student
   or per block, sent over SMTP or handed off to Gmail compose windows.
 - **Self-lookup pages**: "find your block" and "find my seat" pages that are
   safe to publish (roll numbers hashed, no names).
+- **Print bundle**: every printable for a batch or an exam in one ZIP, with a
+  manifest that flags anything built before the seats last changed.
 - **Safety net**: snapshots before every write, a health check over every
   invariant, and a test suite run on every push.
 
@@ -142,7 +148,7 @@ mail the toolkit sends.
 .venv-$(uname -s)/bin/python -m pytest tests -q
 ```
 
-115 tests over the rules that matter (run `python make_sample_data.py` first): seats stay contiguous and inside their
+146 tests over the rules that matter (run `python make_sample_data.py` first): seats stay contiguous and inside their
 block, a reorder never moves anyone between blocks, wedge seats stay reserved
 unless asked for, a transition mail can never name a seat, nobody is mailed
 the same escalation level twice, snapshots round-trip, and drift detection

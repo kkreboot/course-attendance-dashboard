@@ -30,6 +30,27 @@ def _me() -> dict:
     return {"host": socket.gethostname(), "pid": os.getpid()}
 
 
+def _alive(host: str, pid) -> bool:
+    """False only when `pid` is provably gone on *this* machine.
+
+    A dashboard stopped with Ctrl-C or a closed Terminal never calls
+    `release`, so its entry lingers for `STALE_AFTER` - and restarting on the
+    same machine used to warn "another dashboard is open on <this Mac>" about
+    the process that had just been killed. Another machine's pid can't be
+    checked from here, and on Windows `os.kill(pid, 0)` is not a probe (signal 0
+    is CTRL_C_EVENT), so both are assumed alive.
+    """
+    if host != socket.gethostname() or os.name != "posix":
+        return True
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, ValueError, TypeError, OverflowError):
+        return True
+    return True
+
+
 def _read(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -60,6 +81,8 @@ def heartbeat(path: str | Path = LOCK_PATH) -> list[dict]:
             continue
         if now - seen > STALE_AFTER:
             continue
+        if not _alive(e.get("host", ""), e.get("pid")):
+            continue
         keep.append(e)
         others.append({**e, "minutes": round((now - seen).total_seconds() / 60, 1)})
 
@@ -85,7 +108,13 @@ def release(path: str | Path = LOCK_PATH) -> None:
 def describe(others: list[dict]) -> str:
     if not others:
         return ""
-    who = ", ".join(f"**{o['host']}** (last seen {o['minutes']} min ago)" for o in others[:3])
+    # one line per machine, most recent first: two stale entries from the same
+    # host used to read "open on **vm**, **vm**"
+    latest: dict[str, dict] = {}
+    for o in sorted(others, key=lambda o: o.get("minutes", 0)):
+        latest.setdefault(o.get("host", "?"), o)
+    who = ", ".join(f"**{o['host']}** (last seen {o['minutes']} min ago)"
+                    for o in list(latest.values())[:3])
     return (f"Another dashboard is open on {who}. This folder syncs through Dropbox, and two "
             "machines regenerating files at the same time produces a *(Conflicted copy)* file "
             "that has to be untangled by hand. Safe to read here; avoid building or moving "

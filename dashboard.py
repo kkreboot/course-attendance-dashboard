@@ -33,11 +33,13 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import altair as alt          # ships with streamlit; the attendance trend chart
 import streamlit as st
 
 import answer_showing as ansshow
 import attendance_pdf as attpdf
 import attendance_report as attrep
+import bundle
 import checks
 import config as C
 import exam_plan
@@ -46,6 +48,7 @@ import finder
 import handout as handoutmod
 import history
 import lockfile
+import lookup
 import mailer
 import posters
 import reports
@@ -160,7 +163,7 @@ st.markdown(f"""
 
   /* ── status chips ──────────────────────────────────────────────────── */
   .phl-chips {{display:flex; gap:.35rem; flex-wrap:wrap; margin:.1rem 0 .3rem;}}
-  .phl-chips.vert {{flex-direction:column; gap:.3rem;}}
+  .phl-chips.vert {{flex-direction:column; gap:.3rem; margin-bottom:.9rem;}}
   .phl-chip {{
       background:#161B21; border:1px solid #232A33; border-radius:9px;
       padding:.35rem .6rem; font-size:.76rem; color:#A9B2BD; white-space:nowrap;
@@ -409,7 +412,7 @@ def smtp_send_ui(mails: list, key: str) -> None:
             st.error(f"{type(e).__name__}: {e}")
             return
         st.dataframe(pd.DataFrame(results)[["roll", "to", "status", "detail"]],
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
         if dry:
             st.info("Dry run - nothing was sent and nothing was logged.")
         else:
@@ -446,7 +449,7 @@ def mail_send_ui(mails: list, key: str, *, intro: str = "", group: bool = True) 
     if any(m.cc for m in mails):
         for row, m in zip(rows, mails):
             row["Cc"] = m.cc
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     with st.expander(f"Preview the message that goes to {mails[0].roll}"):
         st.code(mails[0].preview(), language="text")
 
@@ -496,8 +499,12 @@ def cohort_dirs(root: str = "out") -> list[Path]:
     """Real cohort folders - `out/.history` and friends are the toolkit's own
     state, not a batch of students."""
     base = Path(root)
+    # `out/exams` holds saved exams, not a batch: listing it here gave the
+    # Overview an "Exams" cohort with no seats, no sheets and no classes held.
+    exams = Path(exam_plan.EXAM_ROOT).resolve()
     return sorted(q for q in base.glob("*")
-                  if q.is_dir() and not q.name.startswith(".")) if base.exists() else []
+                  if q.is_dir() and not q.name.startswith(".")
+                  and q.resolve() != exams) if base.exists() else []
 
 
 def _status_chips(vertical: bool = False) -> str:
@@ -561,6 +568,7 @@ PAGES = {
         ("fact_check", "Answer script showing", "Quiz marks-entry sheet, per TA/room/slot"),
     ],
     "Attendance & mail": [
+        ("person_search", "Student lookup", "Everything about one student"),
         ("insights", "Attendance summary", "Percentages and defaulters"),
         ("mail", "Email students", "Seating, exam and attendance notices"),
     ],
@@ -585,7 +593,7 @@ with st.sidebar:
         for icon, name, tip in items:
             selected = st.session_state["phl_page"] == name
             if st.button(name, key=f"nav_{name}", icon=f":material/{icon}:",
-                         use_container_width=True,
+                         width="stretch",
                          type="primary" if selected else "tertiary"):
                 st.session_state["phl_page"] = name
                 st.rerun()
@@ -684,6 +692,43 @@ if PAGE == "Overview":
             if att.exists():
                 st.download_button("Download attendance.xlsx", att.read_bytes(),
                                     file_name=f"{cdir.name}_attendance.xlsx", key=f"dl_{att}")
+
+    # ── one ZIP per cohort or exam, for the print run ─────────────────
+    st.markdown("#### Print bundle")
+    st.caption("Every printable built so far for one batch or one exam, in one ZIP, with a "
+               "MANIFEST.txt of what each file is and when it was built. Nothing is rebuilt "
+               "here - build on the other pages first, then bundle.")
+    bundle_opts = {f"{c.name.title()} batch": ("cohort", c) for c in cohorts_found}
+    bundle_opts.update({f"Exam · {m['title']}": ("exam", m) for m in exam_plan.list_exams()})
+    if not bundle_opts:
+        st.info("Nothing built yet.")
+    else:
+        pb1, pb2 = st.columns([2, 1], vertical_alignment="bottom")
+        pick_b = pb1.selectbox("Bundle", list(bundle_opts), key="bundle_pick")
+        kind_b, what_b = bundle_opts[pick_b]
+        if kind_b == "cohort":
+            files_b = bundle.cohort_files(what_b)
+            zname_b = f"{C.COURSE_CODE}_{what_b.name}_printables.zip"
+            title_b = f"{what_b.name.title()} batch printables"
+        else:
+            files_b = bundle.exam_files(what_b["dir"])
+            zname_b = f"{C.COURSE_CODE}_{what_b['slug']}_printables.zip"
+            title_b = f"{what_b['title']} printables"
+        alloc_b = (what_b if kind_b == "cohort" else Path(what_b["dir"])) / "allocation.csv"
+        if not files_b:
+            pb2.caption("No printables built for this yet.")
+        else:
+            pb2.download_button(f"Download ZIP ({len(files_b)} files)",
+                                bundle.make_zip(files_b, title_b, alloc_b), file_name=zname_b,
+                                mime="application/zip", key="bundle_dl", type="primary",
+                                width="stretch")
+            old_b = bundle.stale(files_b, alloc_b)
+            if old_b:
+                st.warning(f"{len(old_b)} file(s) were built before the seats last changed - "
+                           "rebuild them before printing: " + ", ".join(old_b[:5])
+                           + (" …" if len(old_b) > 5 else ""))
+            with st.expander("What's in it"):
+                st.code(bundle.manifest(files_b, title_b, alloc_b), language=None)
 
 # ───────────────────────── 1. Allocate seats ─────────────────────────
 if PAGE == "Allocate seats":
@@ -799,7 +844,7 @@ if PAGE == "Allocate seats":
             )
 
         st.success(f"{len(alloc)} students seated in {room}.")
-        st.dataframe(block_summary(alloc, seats, room), use_container_width=True, hide_index=True)
+        st.dataframe(block_summary(alloc, seats, room), width="stretch", hide_index=True)
 
         d1, d2, d3 = st.columns(3)
         d1.download_button("Download allocation.csv", (out / "allocation.csv").read_bytes(),
@@ -1189,7 +1234,7 @@ if PAGE == "Find your block":
                 att_file_f = st.selectbox("Attendance workbook", att_files_f, key="finder_att_file")
                 merged, asofs = {}, []
                 for cfg in cohort_cfgs_f:
-                    sheet_f = checks.COHORT_SHEET.get(Path(cfg["path"]).parent.name)
+                    sheet_f = checks.sheet_for(Path(cfg["path"]).parent.name, att_file_f)
                     if not sheet_f:
                         continue
                     try:
@@ -1465,19 +1510,34 @@ if PAGE == "Move a student":
         rc_block_opts = ["All blocks"] + [b.key for b in C.ROOMS[rc_room]]
         rc_block_pick = rcol2.selectbox("Block", rc_block_opts, key="reorder_block_pick")
 
+        # Register order first: it is what the signature sheets are meant to
+        # follow, and what the health check verifies. The UI used to offer only
+        # the two roll-number orders, so the default reorder put a block out of
+        # register order and the health check flagged the dashboard's own work.
         rc_mode_opts = [
+            "Attendance register order (matches the signature sheets)",
             "Roll order within branches (preserves branch grouping)",
             "Pure roll number order (A-Z)",
         ]
         rc_mode_pick = rcol3.selectbox("Ordering mode", rc_mode_opts, key="reorder_mode_pick")
-        rc_mode = "branch_roll" if "branches" in rc_mode_pick else "roll"
+        rc_mode = ("register" if "register" in rc_mode_pick
+                   else "branch_roll" if "branches" in rc_mode_pick else "roll")
+        rc_reg_order = None
+        if rc_mode == "register":
+            try:
+                rc_sheet = checks.sheet_for(rc_dir.name)
+                rc_reg_order = list(seating.load_attendance_roster(
+                    seating.ATTENDANCE_WORKBOOK, rc_sheet).Roll) if rc_sheet else None
+            except Exception as e:                  # noqa: BLE001 - fall back, say so
+                st.caption(f"Couldn't read the register ({e}); using every batch sheet.")
 
         run_reorder = st.button("Reorder seats", type="secondary", key="reorder_run")
         if run_reorder:
             target_blocks = [b.key for b in C.ROOMS[rc_room]] if rc_block_pick == "All blocks" else [rc_block_pick]
             new_alloc = rc_alloc.copy()
             for tb in target_blocks:
-                new_alloc = seating.reorder_block_in_roll_order(new_alloc, rc_room, tb, mode=rc_mode)
+                new_alloc = seating.reorder_block_in_roll_order(new_alloc, rc_room, tb, mode=rc_mode,
+                                                                reg_order=rc_reg_order)
 
             # Compare seats
             seat_diff = []
@@ -1520,7 +1580,7 @@ if PAGE == "Move a student":
 
             st.success(f"Reordered **{rc_block_pick}** in **{rc_room}** ({rc_label}). {len(seat_diff)} student(s) updated seats.")
             if seat_diff:
-                st.dataframe(pd.DataFrame(seat_diff), use_container_width=True)
+                st.dataframe(pd.DataFrame(seat_diff), width="stretch")
             else:
                 st.info("All seats were already in optimal roll order contiguous from 1.")
 
@@ -1777,7 +1837,7 @@ if PAGE == "Exam seating":
             where = ", ".join(f"{r} block {b} seat {s}" for r, b, s in used_overflow)
             st.info(f"**{len(used_overflow)} transition seat(s) used** rather than opening "
                     f"another room for so few: {where}. They are marked on the seat map.")
-        st.dataframe(alloc_e[["Roll", "Name", "Room", "Block", "Seat"]], use_container_width=True, hide_index=True)
+        st.dataframe(alloc_e[["Roll", "Name", "Room", "Block", "Seat"]], width="stretch", hide_index=True)
         st.caption(f"Exam Venue : {venue_label}")
         st.download_button("Download exam roll list (roll list + physical layout)",
                            Path(out_path).read_bytes(), file_name=Path(out_path).name, key="exam_dl")
@@ -1892,7 +1952,7 @@ if PAGE == "Exam seating":
         if mode_t == "Automatic":
             assign_t = auto_t
             st.dataframe(assign_t[["Room", "Block", "Students", "TA", "Duty"]],
-                         use_container_width=True, hide_index=True)
+                         width="stretch", hide_index=True)
         else:
             names_t = list(tas_t.Name) if len(tas_t) else []
             picked_rows = []
@@ -1926,7 +1986,7 @@ if PAGE == "Exam seating":
                      pd.DataFrame(columns=["Role", "TA", "Roll", "Duty", "AlsoInvigilating"]))
         if len(support_t):
             st.dataframe(support_t[["Role", "TA", "Duty", "AlsoInvigilating"]],
-                         use_container_width=True, hide_index=True)
+                         width="stretch", hide_index=True)
             doubled = [r.TA for r in support_t.itertuples() if r.AlsoInvigilating]
             if doubled:
                 st.caption("⚠️ " + ", ".join(doubled) + " also holds a block post - fine if "
@@ -1947,7 +2007,7 @@ if PAGE == "Exam seating":
                 InCharge=[r.TA == lead_pick and i == list(heads_t.TA).index(r.TA)
                           for i, r in enumerate(heads_t.itertuples())])
             st.dataframe(heads_t[["TA", "Duty", "Responsibility"]],
-                         use_container_width=True, hide_index=True)
+                         width="stretch", hide_index=True)
         else:
             st.caption("No Evaluation/Attendance Head on the duty sheet - the pack will "
                        "print no management section.")
@@ -2029,7 +2089,7 @@ if PAGE == "Exam seating":
                        "**📧 Email students** pages will now offer it.")
 
         st.dataframe(alloc_x[["Roll", "Name", "Room", "Block", "Seat"]].head(200),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
         if len(alloc_x) > 200:
             st.caption(f"Showing the first 200 of {len(alloc_x)} rows - the CSV has all of them.")
 
@@ -2087,7 +2147,7 @@ if PAGE == "Answer script showing":
             pd.DataFrame([{"TA": d.name, "Roll": d.roll, "Group": d.label,
                            "Room": d.room, "Slot": d.slot,
                            "Evaluation TAs": ", ".join(d.evaluators)} for d in duties]),
-            use_container_width=True, hide_index=True)
+            width="stretch", hide_index=True)
 
         try:
             ansshow.check(duties, groups)
@@ -2234,6 +2294,17 @@ if PAGE == "Attendance summary":
                 st.error(f"Couldn't parse sheet {sh!r}: {e}")
                 st.stop()
 
+            # per-student marks for the trend chart: the combined sheet if it is
+            # picked (one read, batch in a column), otherwise each batch sheet
+            trend_sheets = ([x for x in cohorts_pick if x in combined_avail][:1]
+                            or [x for x in cohorts_pick if x not in combined_avail])
+            try:
+                marks_df = pd.concat([attrep.load_marks(str(att_path), sh)
+                                      for sh in trend_sheets], ignore_index=True)
+            except Exception as e:                  # noqa: BLE001 - chart is optional
+                marks_df = pd.DataFrame()
+                st.caption(f"Couldn't read per-class marks for the trend chart: {e}")
+
         students_df = pd.concat(students_parts, ignore_index=True)
         sessions_df = pd.concat(sessions_parts, ignore_index=True)
         held_df = students_df[students_df.Held > 0]
@@ -2277,7 +2348,7 @@ if PAGE == "Attendance summary":
                 row[f"At or above {mailer._pct(bench_default)}%"] = \
                     int((part.Percent >= bench_default).sum())
         st.dataframe(pd.DataFrame(rows_sum).style.format({"Average": "{:.1f}%"}, na_rep="-"),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
         bands = [("< 50%", 0, 50), ("50-75%", 50, 75), ("75-90%", 75, 90), ("90-100%", 90, 101)]
         band_df = pd.DataFrame([
@@ -2285,8 +2356,15 @@ if PAGE == "Attendance summary":
              "Students": int(((held_df.Percent >= lo) & (held_df.Percent < hi)).sum())}
             for name, lo, hi in bands])
         bc1, bc2 = st.columns([1, 2])
-        bc1.dataframe(band_df, use_container_width=True, hide_index=True)
-        bc2.bar_chart(band_df.set_index("Attendance band"))
+        bc1.dataframe(band_df, width="stretch", hide_index=True)
+        # an explicit sort: st.bar_chart orders the bands as text, which put
+        # "< 50%" after "90-100%"
+        bc2.altair_chart(
+            alt.Chart(band_df).mark_bar().encode(
+                x=alt.X("Attendance band:N", sort=[b[0] for b in bands], title=None,
+                        axis=alt.Axis(labelAngle=0)),
+                y=alt.Y("Students:Q"), tooltip=["Attendance band", "Students"]),
+            width="stretch")
 
         if wb_dash.get("summary"):
             # the sheet's own figures, against the same figures recomputed here
@@ -2313,11 +2391,60 @@ if PAGE == "Attendance summary":
             else:
                 st.caption(f"Matches the workbook's {attrep.DASHBOARD_SHEET} sheet exactly.")
 
-        trend = sessions_df[sessions_df.Present + sessions_df.Absent > 0]
+        trend = attrep.batch_trend(marks_df, excused=exc_arg)
         if not trend.empty:
-            st.markdown("#### Attendance rate per session held")
-            chart_df = trend.pivot_table(index="Date", columns="Cohort", values="Percent")
-            st.line_chart(chart_df)
+            st.markdown("#### Attendance over the term, by batch")
+            tc1, tc2 = st.columns([2, 1])
+            trend_kind = tc1.radio(
+                "Show", ["Turnout at each class", "Running attendance to date"],
+                horizontal=True, key="attrep_trend_kind",
+                help="Turnout is who came to that class. Running attendance is the batch's "
+                     "percentage over every class so far - the same measure a student's own "
+                     "percentage uses, so it is the one to hold against the threshold.")
+            show_all = tc2.checkbox("Whole course line", value=trend.Batch.nunique() > 1,
+                                    key="attrep_trend_all",
+                                    disabled=trend.Batch.nunique() < 2)
+            ycol = "Percent" if trend_kind.startswith("Turnout") else "Cumulative"
+            plot = trend.copy()
+            if show_all and trend.Batch.nunique() > 1:
+                allc = (trend.groupby(["Date"], as_index=False)[["Present", "Absent", "Excused"]]
+                        .sum().sort_values("Date"))
+                cred = allc.Present + (allc.Excused if exc_arg == "present" else 0)
+                cnt = cred + allc.Absent
+                allc["Percent"] = cred / cnt.where(cnt > 0) * 100
+                allc["Cumulative"] = cred.cumsum() / cnt.cumsum().where(cnt.cumsum() > 0) * 100
+                allc["Batch"], allc["Session"] = "Whole course", ""
+                plot = pd.concat([plot, allc[plot.columns]], ignore_index=True)
+            plot["Date"] = pd.to_datetime(plot["Date"])
+            lo = max(0, min(float(plot[ycol].min()), float(threshold)) - 5)
+            base = alt.Chart(plot).encode(
+                x=alt.X("Date:T", title=None),
+                y=alt.Y(f"{ycol}:Q", title="Attendance (%)",
+                        scale=alt.Scale(domain=[lo, 100])),
+                color=alt.Color("Batch:N", title=None, legend=alt.Legend(orient="top")),
+                tooltip=[alt.Tooltip("Batch:N"), alt.Tooltip("Session:N"),
+                         alt.Tooltip("Date:T", format="%d %b"),
+                         alt.Tooltip(f"{ycol}:Q", format=".1f", title="%"),
+                         alt.Tooltip("Present:Q"), alt.Tooltip("Absent:Q")])
+            rules = [alt.Chart(pd.DataFrame({"y": [float(threshold)],
+                                             "label": [f"Threshold {mailer._pct(threshold)}%"]}))
+                     .mark_rule(strokeDash=[6, 4], color="#c0392b").encode(y="y:Q",
+                                                                           tooltip=["label:N"])]
+            if bench_default:
+                rules.append(alt.Chart(pd.DataFrame({"y": [float(bench_default)],
+                                                     "label": [f"Benchmark {mailer._pct(bench_default)}%"]}))
+                             .mark_rule(strokeDash=[2, 3], color="#7f8c8d").encode(
+                                 y="y:Q", tooltip=["label:N"]))
+            chart = alt.layer(base.mark_line(point=True), *rules).properties(height=320)
+            st.altair_chart(chart, width="stretch")
+            below_cls = trend[trend.Percent < float(bench_default or threshold)]
+            if len(below_cls):
+                st.caption(f"{len(below_cls)} class(es) had turnout under "
+                           f"{mailer._pct(bench_default or threshold)}%: "
+                           + ", ".join(f"{r.Batch} {r.Session} ({r.Date:%d %b}, "
+                                       f"{mailer._pct(r.Percent)}%)"
+                                       for r in below_cls.head(6).itertuples())
+                           + (" …" if len(below_cls) > 6 else ""))
 
         st.markdown(f"#### Defaulters - below {threshold}%")
         defaulters = (held_df[held_df.Percent < threshold]
@@ -2327,17 +2454,52 @@ if PAGE == "Attendance summary":
             st.success("No one below the threshold.")
         else:
             st.dataframe(defaulters.style.format({"Percent": "{:.1f}%"}, na_rep="-"),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True)
             st.download_button("Download defaulter list (.csv)",
                                defaulters.to_csv(index=False).encode("utf-8"),
                                file_name="defaulters.csv", key="attrep_dl_def")
+
+        # ── at-risk forecast ─────────────────────────────────────────────
+        st.markdown(f"#### At risk - on or above {threshold}% today, but not for long")
+        fr1, fr2 = st.columns([1, 2])
+        horizon_max = max(1, remaining_now) if remaining_now else 10
+        horizon = fr1.number_input(
+            "If they miss the next … classes", min_value=1, max_value=int(horizon_max),
+            value=min(3, int(horizon_max)), step=1, key="attrep_risk_horizon",
+            help="Capped at the classes still to be held: nobody is at risk from a class "
+                 "that won't happen.")
+        fr2.caption(
+            "Everyone listed is fine *today*, so none of them gets a shortfall notice yet. "
+            "**Can miss** is how many classes in a row they can still miss and stay on the "
+            "threshold - the same arithmetic as the *attend the next N* figure in a notice. "
+            "A word now is cheaper than a recovery plan later.")
+        risk_df = attrep.at_risk(held_df, float(threshold), int(horizon),
+                                 remaining=remaining_now or None)
+        if risk_df.empty:
+            st.success(f"Nobody at or above {threshold}% would drop below it by missing the "
+                       f"next {int(horizon)} class(es).")
+        else:
+            risk_show = risk_df[["Cohort", "Roll", "Name", "Present", "Absent", "Held",
+                                 "Percent", "CanMiss", "IfMissed"]].rename(
+                columns={"CanMiss": "Can miss", "IfMissed": f"After missing {int(horizon)}"})
+            rk1, rk2 = st.columns(2)
+            rk1.metric("At risk", len(risk_df))
+            rk2.metric("One absence from the line", int((risk_df.CanMiss == 0).sum()),
+                       help="Can miss 0: the very next absence takes them below the threshold.")
+            st.dataframe(risk_show.style.format({"Percent": "{:.1f}%",
+                                                 f"After missing {int(horizon)}": "{:.1f}%"},
+                                                na_rep="-"),
+                         width="stretch", hide_index=True)
+            st.download_button("Download at-risk list (.csv)",
+                               risk_show.to_csv(index=False).encode("utf-8"),
+                               file_name="at_risk.csv", key="attrep_dl_risk")
 
         with st.expander(f"Full summary - all {len(students_df)} students"):
             full = students_df.sort_values(["Cohort", "Percent"],
                                            na_position="first")[
                 ["Cohort", "Roll", "Name", "Present", "Absent", "Excused", "Held", "Percent"]]
             st.dataframe(full.style.format({"Percent": "{:.1f}%"}, na_rep="-"),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True)
             st.download_button("Download full summary (.csv)",
                                full.to_csv(index=False).encode("utf-8"),
                                file_name="attendance_summary.csv", key="attrep_dl_full")
@@ -2384,17 +2546,154 @@ if PAGE == "Attendance summary":
             out_rep = Path(rep_name.strip() or "attendance_report.pdf")
             snapshot_before([out_rep], "attendance-report")
             try:
-                attpdf.build_report(
-                    str(att_path), str(out_rep), sheet=rep_sheet,
-                    threshold=float(threshold), total_classes=int(rep_total),
-                    benchmark=float(rep_bench), class_wise=rep_classwise,
-                    method=rep_method, excused=exc_arg)
+                # `att_path` lived in the TemporaryDirectory above, which is
+                # gone by now - this button always failed with "No such file".
+                # Write the same bytes to a fresh one for the build.
+                with tempfile.TemporaryDirectory() as tmp_rep:
+                    rep_src = Path(tmp_rep) / (att_fname and Path(att_fname).name
+                                               or "attendance.xlsx")
+                    rep_src.write_bytes(att_bytes)
+                    attpdf.build_report(
+                        str(rep_src), str(out_rep), sheet=rep_sheet,
+                        threshold=float(threshold), total_classes=int(rep_total),
+                        benchmark=float(rep_bench), class_wise=rep_classwise,
+                        method=rep_method, excused=exc_arg)
             except Exception as e:                      # noqa: BLE001 - surfaced as-is
                 st.error(f"{type(e).__name__}: {e}")
                 st.stop()
             st.success(f"Built `{out_rep}`.")
             st.download_button("Download the report (PDF)", out_rep.read_bytes(),
                                file_name=out_rep.name, key="attrep_pdf_dl")
+
+# ───────────────────────── Student lookup ─────────────────────────
+if PAGE == "Student lookup":
+    page_header("Student lookup",
+                "One student's seat, exam seats, attendance, moves and mail - for answering a query.")
+    st.caption("Read-only: gathered from the allocations, saved exams, the Class Attendance "
+               "workbook, `out/transitions.csv` and the mail log. Nothing here writes a file.")
+    people_l = lookup.directory()
+    q_l = st.text_input("Roll number or name", "", key="lookup_query",
+                        placeholder="B26CY1695, or part of a name")
+    if not q_l.strip():
+        st.info(f"{len(people_l)} students on file. Type a roll number or a name.")
+    else:
+        hits_l = lookup.search(q_l, people_l)
+        if hits_l.empty:
+            st.warning(f"No student matches **{q_l.strip()}**.")
+        else:
+            opts_l = {f"{r.Roll} - {r.Name} ({r.Batch})": r.Roll for r in hits_l.itertuples()}
+            pick_l = (next(iter(opts_l)) if len(opts_l) == 1 else
+                      st.selectbox(f"{len(opts_l)} matches", list(opts_l), key="lookup_pick"))
+            rec = lookup.student_record(opts_l[pick_l])
+            att_l = rec.attendance or {}
+
+            st.markdown(f"### {rec.name or rec.roll}")
+            st.caption(" · ".join(x for x in [rec.roll, rec.batch and f"{rec.batch} batch",
+                                               rec.email] if x))
+            m1, m2, m3, m4 = st.columns(4)
+            seat_l = rec.classroom[0] if rec.classroom else None
+            m1.metric("Classroom seat", f"Block {seat_l['Block']}" if seat_l else "-",
+                      help=(f"{seat_l['Room']}, seat {seat_l['Seat']}. Classroom notices name "
+                            "the block only." if seat_l else "Not in any allocation."))
+            if att_l.get("percent") is not None:
+                m2.metric("Attendance", f"{mailer._pct(att_l['percent'])}%",
+                          help=f"{att_l['present']} present, {att_l['absent']} absent, "
+                               f"{att_l['excused']} excused, as of {att_l['asof']}.")
+                if att_l["below"]:
+                    m3.metric("To get back", f"{att_l['to_recover']} in a row"
+                              if att_l["can_reach"] else "out of reach",
+                              help=(f"Best still possible: "
+                                    f"{mailer._pct(att_l['best_possible'])}% with "
+                                    f"{att_l['remaining']} classes left."))
+                else:
+                    m3.metric("Can still miss", att_l["can_miss"],
+                              help=f"Classes in a row before dropping below "
+                                   f"{mailer._pct(att_l['threshold'])}%.")
+            else:
+                m2.metric("Attendance", "-")
+                m3.metric("Can still miss", "-")
+            m4.metric("Mails logged", len(rec.mail))
+
+            if att_l.get("below"):
+                st.error(f"Below the {mailer._pct(att_l['threshold'])}% requirement."
+                         + ("" if att_l["can_reach"] else
+                            f" Cannot reach it: at best {mailer._pct(att_l['best_possible'])}%."))
+            elif att_l and att_l.get("can_miss", 99) <= 1:
+                st.warning("On the line: "
+                           + ("the next absence" if att_l["can_miss"] == 0
+                              else "one more absence is fine, a second")
+                           + f" takes them below {mailer._pct(att_l['threshold'])}%.")
+
+            t_att, t_seat, t_hist = st.tabs(["Attendance", "Seats", "Moves & mail"])
+            with t_att:
+                if rec.marks.empty:
+                    st.info("Not found on any batch sheet of the Class Attendance workbook.")
+                else:
+                    held_l = rec.marks[rec.marks.Mark != ""].copy()
+                    label_l = {"Y": "Present", "N": "Absent", "E": "Excused", "NA": "N/A"}
+                    held_l["Status"] = held_l.Mark.map(label_l).fillna(held_l.Mark)
+                    held_l["Date"] = pd.to_datetime(held_l.Date)
+                    strip = alt.Chart(held_l).mark_square(size=180).encode(
+                        x=alt.X("Date:T", title=None),
+                        color=alt.Color("Status:N", title=None, legend=alt.Legend(orient="top"),
+                                        scale=alt.Scale(domain=["Present", "Absent", "Excused", "N/A"],
+                                                        range=["#2e8b57", "#c0392b", "#e0a526", "#9aa0a6"])),
+                        tooltip=["Session:N", alt.Tooltip("Date:T", format="%a %d %b"), "Status:N"],
+                    ).properties(height=70)
+                    st.altair_chart(strip, width="stretch")
+                    missed_l = held_l[held_l.Mark.isin(["N", "E"])]
+                    if missed_l.empty:
+                        st.success("No absences.")
+                    else:
+                        st.markdown("**Absent or excused**")
+                        st.dataframe(missed_l.assign(Date=missed_l.Date.dt.strftime("%a %d %b %Y"))
+                                     [["Session", "Date", "Status"]],
+                                     width="stretch", hide_index=True)
+                    st.caption(f"{att_l.get('classes_held', 0)} classes held, "
+                               f"{att_l.get('remaining', 0)} still to come. Read from the "
+                               f"**{att_l.get('sheet', '')}** sheet.")
+            with t_seat:
+                if rec.classroom:
+                    st.markdown("**Classroom**")
+                    st.dataframe(pd.DataFrame(rec.classroom), width="stretch", hide_index=True)
+                else:
+                    st.info("Not seated in any classroom allocation.")
+                if rec.exams:
+                    st.markdown("**Exams**")
+                    st.dataframe(pd.DataFrame(rec.exams), width="stretch", hide_index=True)
+                else:
+                    st.caption("No saved exam seats this student.")
+            with t_hist:
+                if len(rec.moves):
+                    st.markdown("**Seat moves**")
+                    st.dataframe(rec.moves, width="stretch", hide_index=True)
+                else:
+                    st.caption("Never moved through the toolkit.")
+                if len(rec.mail):
+                    st.markdown("**Mail log**")
+                    st.dataframe(rec.mail[["timestamp", "kind", "subject", "status"]],
+                                 width="stretch", hide_index=True)
+                else:
+                    st.caption("Nothing in the mail log for this student.")
+
+            # a plain answer to paste into a reply
+            lines_l = [f"{rec.name} ({rec.roll})" if rec.name else rec.roll]
+            if seat_l:
+                lines_l.append(f"Classroom: {seat_l['Room']}, Block {seat_l['Block']}")
+            for e in rec.exams[:3]:
+                lines_l.append(f"{e['Exam']}: {e['Room']}, Block {e['Block']}, Seat {e['Seat']}"
+                               + (f" - {e['When']}" if e["When"] else ""))
+            if att_l.get("percent") is not None:
+                absent_on = ", ".join(pd.to_datetime(rec.marks[rec.marks.Mark == "N"].Date)
+                                      .dt.strftime("%d %b"))
+                lines_l.append(f"Attendance: {mailer._pct(att_l['percent'])}% "
+                               f"({att_l['present']} present, {att_l['absent']} absent"
+                               + (f", {att_l['excused']} excused" if att_l["excused"] else "")
+                               + f") as of {att_l['asof']}")
+                if absent_on:
+                    lines_l.append(f"Absent on: {absent_on}")
+            with st.expander("Summary to paste into a reply"):
+                st.code("\n".join(lines_l), language=None)
 
 # ───────────────────────── Email students ─────────────────────────
 if PAGE == "Email students":
@@ -2454,7 +2753,7 @@ if PAGE == "Email students":
             else:
                 st.dataframe(show[["timestamp", "roll", "name", "from_room", "from_block",
                                    "to_room", "to_block"]],
-                             use_container_width=True, hide_index=True)
+                             width="stretch", hide_index=True)
                 labels_t = {f"{r.roll} - {r.name or '?'}  ({r.from_block} → {r.to_block})": i
                             for i, r in enumerate(show.itertuples())}
                 chosen_t = st.multiselect(
@@ -2561,9 +2860,14 @@ if PAGE == "Email students":
 
     elif mail_mode == "Exam seating":
         last_exam = st.session_state.get("exam_last")
+        # Saved exams are on disk, so they are offered whether or not this
+        # browser session allocated or loaded one - after a restart the only
+        # choice used to be uploading a roll list the toolkit had just written.
+        saved_x = exam_plan.list_exams()
         exam_src = st.radio(
             "Seating source",
             (["The allocation from the Exam seating page"] if last_exam else [])
+            + (["A saved exam"] if saved_x else [])
             + ["Upload a roll list (.xlsx/.csv with Roll, Room, Block, Seat)"],
             key="mail_exam_src")
 
@@ -2572,6 +2876,16 @@ if PAGE == "Email students":
         if last_exam and exam_src.startswith("The allocation"):
             edf_mail = last_exam["alloc"]
             st.caption(f"{len(edf_mail)} students · {last_exam['venue']}")
+        elif exam_src == "A saved exam":
+            labels_sx = {f"{m['title']} · {m.get('when') or m.get('saved', '')}": m
+                         for m in saved_x}
+            meta_sx = labels_sx[st.selectbox("Exam", list(labels_sx), key="mail_exam_saved_pick")]
+            edf_mail = pd.read_csv(Path(meta_sx["dir"]) / exam_plan.ALLOC_FILE, dtype={"Roll": str})
+            exam_defaults = {"exam": meta_sx.get("title", ""),
+                             "course": meta_sx.get("course", C.COURSE),
+                             "when": meta_sx.get("when", ""),
+                             "slug": meta_sx.get("slug", "")}
+            st.caption(f"{len(edf_mail)} students · {meta_sx.get('venue', '')}")
         else:
             up = st.file_uploader("Exam roll list", type=["xlsx", "xls", "csv"],
                                   key="mail_exam_upload")
@@ -2588,12 +2902,12 @@ if PAGE == "Email students":
         else:
             xc1, xc2 = st.columns(2)
             exam_name = xc1.text_input("Exam title", exam_defaults.get("exam", "Quiz 1"),
-                                       key="mail_exam_title")
+                                       key=f"mail_exam_title_{exam_defaults.get('slug', '')}")
             course_x = xc2.text_input("Course", exam_defaults.get("course", C.COURSE),
-                                      key="mail_exam_course")
+                                      key=f"mail_exam_course_{exam_defaults.get('slug', '')}")
             xc3, xc4 = st.columns(2)
             when_x = xc3.text_input("Date & time", exam_defaults.get("when", ""),
-                                    key="mail_exam_when")
+                                    key=f"mail_exam_when_{exam_defaults.get('slug', '')}")
             session_x = xc4.text_input("Session", C.SESSION, key="mail_exam_session")
             include_seat = st.checkbox("Name the exact seat (uncheck for a block-only exam venue)",
                                        value=True, key="mail_exam_seat")
@@ -2953,7 +3267,7 @@ if PAGE == "Email students":
                         st.dataframe(over[cols_over].style.format(
                                                {"Percent": "{:.1f}%",
                                                 "Best possible": "{:.1f}%"}, na_rep="-"),
-                                     use_container_width=True, hide_index=True)
+                                     width="stretch", hide_index=True)
                         labels_a = {f"{r.Roll} - {r.Name} ({mailer._pct(r.Percent)}%, "
                                     f"{r.Absent} missed)": i
                                     for i, r in enumerate(over.itertuples())}
@@ -2994,7 +3308,7 @@ if PAGE == "Email students":
     if Path(mailer.MAIL_LOG).exists():
         with st.expander("Send log - what students have already been told"):
             log_df = pd.read_csv(mailer.MAIL_LOG)
-            st.dataframe(log_df.tail(200).iloc[::-1], use_container_width=True, hide_index=True)
+            st.dataframe(log_df.tail(200).iloc[::-1], width="stretch", hide_index=True)
             st.download_button("Download mail log (.csv)",
                                Path(mailer.MAIL_LOG).read_bytes(),
                                file_name="mail_log.csv", key="mail_log_dl")
@@ -3083,7 +3397,7 @@ if PAGE == "Posters & packs":
              "Roll numbers": ", ".join(posters._range_text(x) for x in r["runs"]),
              "Students": r["n"]}
             for r in posters.roll_ranges(alloc_s)]),
-            use_container_width=True, hide_index=True)
+            width="stretch", hide_index=True)
         if st.button("Build the one-page summary", type="primary", key="poster_summary_run"):
             out_s = Path(meta_s["dir"]) / f"{meta_s['slug']}_where_to_report.pdf"
             snapshot_before([out_s], f"summary-{meta_s['slug']}")
@@ -3245,7 +3559,7 @@ if PAGE == "Health check":
             show = show[show.status != "ok"]
         st.dataframe(
             show[["", "group", "check", "detail", "fix"]],
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
             column_config={
                 "": st.column_config.TextColumn("", width="small"),
                 "group": st.column_config.TextColumn("Where", width="small"),
@@ -3273,7 +3587,7 @@ if PAGE == "Health check":
         else:
             st.warning(f"**{cdir.name.title()}** - {len(drift)} block change(s) not in the log:")
             st.dataframe(drift[["roll", "name", "from_block", "to_block"]],
-                         use_container_width=True, hide_index=True)
+                         width="stretch", hide_index=True)
         if st.button(f"Adopt & re-baseline - {cdir.name.title()}", key=f"hc_adopt_{cdir.name}"):
             n = seating.adopt_untracked_moves(cdir.name)
             st.success(f"Recorded {n} move(s) in `{seating.TRANSITION_LOG}` and re-baselined. "

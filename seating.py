@@ -391,9 +391,13 @@ def reorder_block_in_roll_order(alloc: pd.DataFrame, room: str, block: str,
         sub_sorted = sub.sort_values("Roll").reset_index(drop=True)
     elif mode == "register":
         if reg_order is None:
-            sheet = "English" if room == "LHC110" else "Hindi"
+            # Every batch sheet, in workbook order. Roll numbers are unique
+            # across batches, so ranking over the union orders this block
+            # exactly as its own sheet would - without assuming which room
+            # belongs to which sheet (this used to be `"English" if room ==
+            # "LHC110" else "Hindi"`, i.e. only ever right for the demo).
             try:
-                r_df = load_attendance_roster(C.ATTENDANCE_WORKBOOK, sheet=sheet)
+                r_df = load_attendance_roster(C.ATTENDANCE_WORKBOOK)
                 reg_order = list(r_df.Roll)
             except Exception:
                 reg_order = None

@@ -425,6 +425,22 @@ def classes_to_recover(present: int, absent: int,
     return max(0, math.ceil(need - 1e-9))
 
 
+def misses_allowed(present: int, absent: int,
+                   threshold: float = ATTENDANCE_THRESHOLD) -> int:
+    """How many classes in a row a student can miss from here and still be on
+    the threshold - the other side of `classes_to_recover`.
+
+    The largest k with p / (p + a + k) >= t, i.e. k <= p/t - p - a. Zero for a
+    student already below the line (or exactly on it), so "can miss 0" means
+    the next absence takes them under. The at-risk forecast on the Attendance
+    summary page is this number compared with the classes coming up.
+    """
+    p, a, t = int(present), int(absent), float(threshold) / 100.0
+    if t <= 0:
+        return 10 ** 6
+    return max(0, math.floor(p / t - p - a + 1e-9))
+
+
 def best_possible_percent(present: int, absent: int, remaining: int) -> float | None:
     """The highest percentage still reachable if every remaining class is
     attended. None when nothing has been held and nothing remains."""

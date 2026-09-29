@@ -31,7 +31,20 @@ import seating
 
 OUT = Path("out")
 ATT_WB = seating.ATTENDANCE_WORKBOOK
-COHORT_SHEET = {"english": "English", "hindi": "Hindi"}
+# Extra cohort-folder -> sheet names, for a folder whose name doesn't match its
+# sheet. Normally empty: `attrep.sheet_for_cohort` pairs `out/english` with the
+# `English` sheet by name.
+COHORT_SHEET: dict[str, str] = {}
+
+
+def sheet_for(cohort: str, path: str | Path | None = None) -> str | None:
+    """The register sheet for cohort folder `cohort` in workbook `path`."""
+    if cohort in COHORT_SHEET:
+        return COHORT_SHEET[cohort]
+    try:
+        return attrep.sheet_for_cohort(str(path or ATT_WB), cohort)
+    except Exception:                               # noqa: BLE001 - unreadable = unmapped
+        return None
 
 
 def _result(name: str, status: str, detail: str, fix: str = "", group: str = "") -> dict:
@@ -112,11 +125,11 @@ def check_against_register(cdir: Path) -> list[dict]:
     """The Class Attendance workbook is the authority on who is in which batch
     and in what order; the allocation has to agree with it."""
     g = cdir.name.title()
-    sheet = COHORT_SHEET.get(cdir.name)
-    if not Path(ATT_WB).exists() or sheet is None:
+    sheet = sheet_for(cdir.name) if Path(ATT_WB).exists() else None
+    if sheet is None:
         return [_result("Matches the attendance register", "warn",
                         f"No workbook sheet mapped for `{cdir.name}`.",
-                        "Add it to checks.COHORT_SHEET if this cohort is real.", g)]
+                        "Name the folder after its sheet, or add it to checks.COHORT_SHEET.", g)]
     try:
         reg = seating.load_attendance_roster(ATT_WB, sheet)
     except (ValueError, KeyError, FileNotFoundError) as e:
@@ -288,11 +301,11 @@ def check_attendance() -> list[dict]:
                         "Check the file isn't open/locked or half-saved.", "Attendance")]
 
     for cdir in _cohorts():
-        want = COHORT_SHEET.get(cdir.name)
+        want = sheet_for(cdir.name)
         g = cdir.name.title()
         if want not in sheets:
             out.append(_result("Register sheet present", "fail",
-                               f"no sheet named {want!r} (found {', '.join(sheets)})",
+                               f"no sheet matching {cdir.name!r} (found {', '.join(sheets)})",
                                "Rename the sheet, or update checks.COHORT_SHEET.", g))
             continue
         try:
@@ -365,9 +378,7 @@ def check_combined_sheet() -> list[dict]:
             continue
 
         per_sheet, bad_batch, mismatched = {}, [], []
-        for cohort, name in COHORT_SHEET.items():
-            if name not in attrep.sheet_names(ATT_WB):
-                continue
+        for name in attrep.cohort_sheets(ATT_WB):
             stu, _ = attrep.load(ATT_WB, name)
             for r in stu.itertuples():
                 per_sheet[str(r.Roll)] = (name, int(r.Present), int(r.Absent), int(r.Excused))
