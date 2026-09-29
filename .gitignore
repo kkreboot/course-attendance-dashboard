@@ -1,0 +1,45 @@
+# ── Real data never goes in git ─────────────────────────────────────────────
+# Every spreadsheet, export, PDF and generated output in the project root is
+# ignored. The only data tracked is the invented set in sample_data/.
+/*.xlsx
+/*.xls
+/*.csv
+/*.pdf
+/*.pptx
+/*.zip
+/*.png
+/*.html
+!/plan_template.html
+!/finder template.html
+!/exam_finder_template.html
+!/exam_seat_map_template.html
+out/
+signed_sheet/
+Excused Absent/
+_to_delete/
+_preview*/
+mnt/
+template.json
+
+# ── Local secrets and state ─────────────────────────────────────────────────
+mail_config.json
+.course_dashboard_smtp.env
+*.env
+.dashboard.lock
+
+# ── Python / tooling ────────────────────────────────────────────────────────
+.venv/
+.venv-*/
+__pycache__/
+*.pyc
+.pytest_cache/
+.idea/
+.vscode/
+.claude/
+
+# ── OS / sync noise ─────────────────────────────────────────────────────────
+.DS_Store
+*(Conflicted copy*
+*.Conflicted copy*
+/tmp/
+*.lock

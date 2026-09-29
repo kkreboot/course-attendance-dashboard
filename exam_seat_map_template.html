@@ -1,0 +1,151 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Exam seat map</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#14181d; --mute:#6b7280; --line:#e4e7eb;
+    --seat:#eef0f3; --seatline:#dde1e6; --used:#0f766e; --usedbg:#e6f2f0;
+    --hit:#b45309; --hitbg:#fdf1dc;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#0b0e12; --card:#141920; --ink:#e6e9ed; --mute:#8b95a1; --line:#232a33;
+          --seat:#181d24; --seatline:#232a33; --used:#5eead4; --usedbg:#10312e;
+          --hit:#fbbf24; --hitbg:#3a2c0d;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+  header{margin-bottom:18px}
+  .eyebrow{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);font-weight:600}
+  h1{margin:.25rem 0 .1rem;font-size:1.7rem;letter-spacing:-.02em}
+  .meta{color:var(--mute);font-size:.9rem}
+  .bar{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 0 10px;
+       border-bottom:1px solid var(--line);margin-bottom:18px}
+  input[type=search]{width:100%;max-width:420px;padding:.6rem .8rem;border-radius:10px;
+       border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:1rem}
+  .found{margin-top:.55rem;font-size:.92rem;color:var(--mute);min-height:1.3em}
+  .found b{color:var(--ink)}
+  .room{background:var(--card);border:1px solid var(--line);border-radius:16px;
+        padding:18px 18px 22px;margin-bottom:20px}
+  .room h2{margin:0 0 .1rem;font-size:1.15rem}
+  .room .sub{color:var(--mute);font-size:.82rem;margin-bottom:14px}
+  .block{margin:0 0 18px}
+  .block h3{margin:0 0 .45rem;font-size:.85rem;color:var(--mute);font-weight:600;
+            text-transform:uppercase;letter-spacing:.06em}
+  .grid{display:flex;flex-direction:column;gap:5px}
+  .row{display:flex;gap:5px;flex-wrap:nowrap;overflow-x:auto}
+  .seat{flex:0 0 auto;min-width:74px;border-radius:8px;border:1px solid var(--seatline);
+        background:var(--seat);padding:5px 6px;font-size:.66rem;color:var(--mute);
+        text-align:center;line-height:1.25}
+  .seat.used{background:var(--usedbg);border-color:var(--used);color:var(--used)}
+  .seat .roll{display:block;font-size:.74rem;font-weight:650;color:var(--ink);
+              font-family:"JetBrains Mono",ui-monospace,monospace;letter-spacing:-.02em}
+  .seat.hit{background:var(--hitbg);border-color:var(--hit);box-shadow:0 0 0 2px var(--hit)}
+  /* transition seats: exist in the hall, never allotted - hatched so an
+     invigilator doesn't read the gap as a missing student */
+  .seat.held{background:repeating-linear-gradient(135deg,var(--seat),var(--seat) 4px,
+             var(--seatline) 4px,var(--seatline) 5px);color:var(--mute);opacity:.75}
+  /* a transition seat that *is* occupied: the overflow case, hatched in the
+     allotted colour so it reads as "seated here, unusually" at a glance */
+  .seat.held.used{background:repeating-linear-gradient(135deg,var(--usedbg),var(--usedbg) 4px,
+                  var(--used) 4px,var(--used) 5px);border-color:var(--used);opacity:1}
+  .legend{display:flex;gap:1rem;flex-wrap:wrap;font-size:.75rem;color:var(--mute);margin:.2rem 0 1rem}
+  .legend span{display:flex;align-items:center;gap:.35rem}
+  .legend i{width:14px;height:14px;border-radius:4px;border:1px solid var(--seatline);display:inline-block}
+  .legend i.u{background:var(--usedbg);border-color:var(--used)}
+  .legend i.h{background:repeating-linear-gradient(135deg,var(--seat),var(--seat) 3px,
+              var(--seatline) 3px,var(--seatline) 4px)}
+  .seat.hit .roll{color:var(--hit)}
+  .dim{opacity:.25}
+  .stage{margin-top:10px;text-align:center;font-size:.7rem;letter-spacing:.28em;
+         text-transform:uppercase;color:var(--mute);border-top:1px dashed var(--line);padding-top:8px}
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:.86rem}
+  th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--line)}
+  th{color:var(--mute);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em}
+  td.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.8rem}
+  @media print{
+    .bar{display:none} body{background:#fff}
+    .room{break-inside:avoid;border-color:#bbb;box-shadow:none}
+    .seat{border-color:#999}
+  }
+</style>
+<div class="wrap">
+<header>
+  <div class="eyebrow" id="eyebrow"></div>
+  <h1 id="title"></h1>
+  <div class="meta" id="meta"></div>
+</header>
+
+<div class="bar">
+  <input type="search" id="q" placeholder="Type a roll number to spotlight a seat…" autocomplete="off">
+  <div class="found" id="found"></div>
+</div>
+
+<section id="summary" class="room">
+  <h2>Where each block sits</h2>
+  <div class="sub">Roll numbers run in this order within each block.</div>
+  <table><thead><tr><th>Room</th><th>Block / row</th><th>Students</th><th>From</th><th>To</th></tr></thead>
+  <tbody id="sumbody"></tbody></table>
+</section>
+
+<div id="rooms"></div>
+</div>
+<script>
+const P=__DATA__;
+const M32=0xFFFFFFFF;
+document.getElementById('eyebrow').textContent=[P.course,P.venue].filter(Boolean).join(' · ');
+document.getElementById('title').textContent=P.title;
+const SPACING={alternate:'gap beside and behind', side:'gap beside only - may sit behind',
+               every:'every seat filled', true:'gap beside and behind', false:'every seat filled'};
+document.getElementById('meta').textContent=
+  [P.when, P.n+' students', SPACING[P.spaced]||'', P.instructors]
+    .filter(Boolean).join('  ·  ');
+
+document.getElementById('sumbody').innerHTML=(P.summary||[]).map(s=>
+  `<tr><td>${s.room}</td><td><b>${s.label||('Block '+s.block)}</b></td><td>${s.n}</td>
+       <td class="mono">${s.first}</td><td class="mono">${s.last}</td></tr>`).join('');
+
+const roomsEl=document.getElementById('rooms');
+for(const [room,blocks] of Object.entries(P.rooms||{})){
+  const used=Object.values(blocks).flat(2).filter(c=>c.used).length;
+  const el=document.createElement('section');
+  el.className='room';
+  const held=Object.values(blocks).flat(2).filter(c=>c.held&&!c.used).length;
+  const spill=Object.values(blocks).flat(2).filter(c=>c.held&&c.used).length;
+  el.innerHTML=`<h2>${room}</h2><div class="sub">${used} students · ${(((P.labels||{})[room]||{}).rowcol?'rows ':'blocks ')}${Object.keys(blocks).map(b=>((((P.labels||{})[room]||{}).group||{})[b]||b).replace(/^(Block|Row) /,'')).join(', ')}`
+    +(held?` · ${held} transition seats held back`:'')
+    +(spill?` · ${spill} used as overflow`:'')+`</div>`
+    +`<div class="legend"><span><i class="u"></i>allotted</span><span><i></i>free</span>`
+    +(held?`<span><i class="h"></i>transition seat - held back</span>`:'')
+    +(spill?`<span><i class="u" style="background:repeating-linear-gradient(135deg,var(--usedbg),var(--usedbg) 3px,var(--used) 3px,var(--used) 4px)"></i>transition seat used as overflow</span>`:'')
+    +`</div>`
+    +Object.entries(blocks).map(([b,grid])=>
+      `<div class="block"><h3>${(((P.labels||{})[room]||{}).group||{})[b]||('Block '+b)}</h3><div class="grid">`
+      +grid.map(row=>`<div class="row">`+row.map(c=>
+          `<div class="seat ${c.used?'used':''} ${c.held?'held':''}" data-roll="${c.roll}" data-seat="${c.seat}">
+             ${c.seat}${c.roll?`<span class="roll">${c.roll}</span>`:''}</div>`).join('')
+        +`</div>`).join('')
+      +`</div></div>`).join('')
+    +`<div class="stage">Front of hall</div>`;
+  roomsEl.appendChild(el);
+}
+
+const q=document.getElementById('q'), found=document.getElementById('found');
+q.addEventListener('input',()=>{
+  const v=q.value.trim().toUpperCase();
+  const seats=[...document.querySelectorAll('.seat')];
+  seats.forEach(s=>{s.classList.remove('hit','dim')});
+  if(v.length<3){found.textContent='';return;}
+  const hits=seats.filter(s=>(s.dataset.roll||'').toUpperCase().includes(v));
+  if(!hits.length){found.textContent='No seat for that roll number in this exam.';return;}
+  seats.forEach(s=>{if(!hits.includes(s))s.classList.add('dim')});
+  hits.forEach(s=>s.classList.add('hit'));
+  const first=hits[0], blk=first.closest('.block').querySelector('h3').textContent,
+        room=first.closest('.room').querySelector('h2').textContent;
+  found.innerHTML=`<b>${first.dataset.roll}</b> - ${room}, ${blk}, seat <b>${first.dataset.seat}</b>`
+    +(hits.length>1?` (+${hits.length-1} more matching)`:'');
+  first.scrollIntoView({behavior:'smooth',block:'center'});
+});
+</script>

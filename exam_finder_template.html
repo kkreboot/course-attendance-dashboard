@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Find my exam seat</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#14181d;--mute:#6b7280;--line:#e4e7eb;
+        --accent:#0f766e;--accentbg:#e6f2f0;--seat:#eef0f3;--seatline:#dde1e6}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#0b0e12;--card:#141920;--ink:#e6e9ed;--mute:#8b95a1;--line:#232a33;
+          --accent:#5eead4;--accentbg:#10312e;--seat:#181d24;--seatline:#232a33}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .wrap{max-width:640px;margin:0 auto;padding:32px 18px 64px}
+  .eyebrow{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);font-weight:600}
+  h1{margin:.3rem 0 .2rem;font-size:1.8rem;letter-spacing:-.02em}
+  .meta{color:var(--mute);font-size:.92rem;margin-bottom:1.4rem}
+  form{display:flex;gap:.5rem;margin-bottom:.9rem}
+  input{flex:1;padding:.85rem 1rem;font-size:1.1rem;border-radius:12px;border:1px solid var(--line);
+        background:var(--card);color:var(--ink);font-family:"JetBrains Mono",ui-monospace,monospace}
+  button{padding:.85rem 1.3rem;border:0;border-radius:12px;background:var(--accent);
+         color:var(--bg);font-weight:650;font-size:1rem;cursor:pointer}
+  .msg{min-height:1.4em;font-size:.92rem;color:#b45309;margin-bottom:1rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;
+        display:none;margin-bottom:1.2rem}
+  .card.on{display:block}
+  .card .top{background:var(--accentbg);padding:.6rem 1.1rem;font-size:.78rem;
+             letter-spacing:.05em;text-transform:uppercase;color:var(--accent);font-weight:650;
+             display:flex;justify-content:space-between}
+  .card .body{padding:1.1rem}
+  .big{font-size:2rem;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+  .big small{display:block;font-size:.9rem;font-weight:400;color:var(--mute);margin-top:.3rem;
+             letter-spacing:0}
+  .seatline{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--line)}
+  .grid{display:flex;flex-direction:column;gap:4px;margin-top:.6rem;overflow-x:auto}
+  .row{display:flex;gap:4px}
+  .seat{flex:0 0 auto;min-width:44px;border-radius:7px;border:1px solid var(--seatline);
+        background:var(--seat);padding:4px 3px;font-size:.6rem;color:var(--mute);text-align:center}
+  .seat.you{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:700}
+  .seat.held{opacity:.4}
+  .rules{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1rem 1.1rem;
+         font-size:.9rem;color:var(--mute)}
+  .rules b{color:var(--ink)}
+  footer{margin-top:1.4rem;font-size:.78rem;color:var(--mute)}
+</style>
+<div class="wrap">
+  <div class="eyebrow" id="eyebrow"></div>
+  <h1>Find my exam seat</h1>
+  <div class="meta" id="meta"></div>
+
+  <form id="f"><input id="q" placeholder="Your roll number" autocomplete="off" autocapitalize="characters">
+    <button type="submit">Find</button></form>
+  <div class="msg" id="msg"></div>
+
+  <div class="card" id="card">
+    <div class="top"><span id="ctitle"></span><span id="croll"></span></div>
+    <div class="body">
+      <div class="big" id="cwhere"></div>
+      <div class="seatline" id="cseat"></div>
+    </div>
+  </div>
+
+  <div class="rules">
+    Carry your <b>Institute ID card</b>. Reach the room at least ten minutes early and sit in
+    <b>your own seat</b> - seats are checked against this list. If your roll number isn't found,
+    check it against your ID card, then ask an invigilator.
+  </div>
+</div>
+<script>
+const P=__DATA__;
+function fnv(t,h){for(let i=0;i<t.length;i++){const b=t.charCodeAt(i);
+  if(b<128){h=(h^b)>>>0;h=Math.imul(h,16777619)>>>0;}
+  else{for(const x of new TextEncoder().encode(t[i])){h=(h^x)>>>0;h=Math.imul(h,16777619)>>>0;}}}
+ return h>>>0;}
+const key=r=>{const t=r.trim().toUpperCase();
+ return fnv(t,2166136261).toString(16).padStart(8,'0')+fnv(t,40389).toString(16).padStart(8,'0');};
+
+document.getElementById('eyebrow').textContent=[P.course,P.title].filter(Boolean).join(' · ');
+document.getElementById('meta').textContent=
+  [P.when, P.venue, P.instructors].filter(Boolean).join('  ·  ');
+
+const q=document.getElementById('q'), msg=document.getElementById('msg'), card=document.getElementById('card');
+document.getElementById('f').addEventListener('submit',e=>{e.preventDefault();look();});
+q.addEventListener('input',()=>{if(q.value.trim().length>=8)look(true);});
+
+function look(quiet){
+  const raw=q.value.trim();
+  card.classList.remove('on');
+  if(!raw){msg.textContent='';return;}
+  const rec=P.lookup[key(raw)];
+  if(!rec){msg.textContent=quiet?'':'That roll number is not in this exam. Check it against your ID card, then ask an invigilator.';return;}
+  msg.textContent='';
+  const [room,blk,seat]=rec.split('|');
+  const L=(P.labels||{})[room]||{}, gl=(L.group||{})[blk]||('Block '+blk),
+        unit=L.unit||'seat';
+  document.getElementById('ctitle').textContent=P.title;
+  document.getElementById('croll').textContent=raw.toUpperCase();
+  document.getElementById('cwhere').innerHTML=
+    `${room}<small>${gl} · ${unit} <b>${seat}</b></small>`;
+
+  const shape=(P.shapes||{})[room]&&P.shapes[room][blk];
+  const el=document.getElementById('cseat');
+  if(shape){
+    el.innerHTML=`<div style="font-size:.78rem;color:var(--mute)">Your seat in ${gl.toLowerCase()} - front of hall at the bottom</div>`
+      +`<div class="grid">`+shape.map(row=>`<div class="row">`+row.map(c=>
+          `<div class="seat ${c.s===seat?'you':''} ${c.h?'held':''}">${c.s===seat?'YOU':c.s}</div>`).join('')+`</div>`).join('')
+      +`</div>`;
+  } else {
+    el.innerHTML=`<div style="font-size:.9rem;color:var(--mute)">${unit==='column'?'Column':'Seat'} <b>${seat}</b> in ${gl.toLowerCase()}. Seat numbers are marked on the desks.</div>`;
+  }
+  card.classList.add('on');
+  if(!quiet)card.scrollIntoView({behavior:'smooth',block:'center'});
+}
+q.focus();
+</script>

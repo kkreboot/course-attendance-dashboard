@@ -1,0 +1,196 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>__TITLE__</title>
+<meta name="description" content="Interactive seating plan for __ROOM__ · __COURSE__.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#16202B;--paper:#EDEFF0;--slab:#DFE3E5;--line:#B9C0C4;--mute:#6B767D;--warm:#C9721B;--ok:#12706B;}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:Archivo,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom)}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 16px 64px}
+.eyebrow{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--mute);font-weight:600}
+h1{font-size:clamp(24px,5vw,36px);line-height:1;margin:8px 0 4px;font-weight:800;letter-spacing:-.02em}
+.lede{color:var(--mute);font-size:13.5px;margin:0 0 16px;line-height:1.5}
+.rule{height:2px;background:var(--ink);margin:0 0 18px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 22px;margin:0 0 20px}
+.meta div{font-size:12px;color:var(--mute)}
+.meta b{display:block;font-size:19px;color:var(--ink);font-weight:800;letter-spacing:-.01em}
+
+form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+input{flex:1 1 220px;font-family:'IBM Plex Mono',monospace;font-size:16px;padding:13px 15px;border:2px solid var(--ink);background:#fff;color:var(--ink);border-radius:0;text-transform:uppercase;min-width:0}
+input::placeholder{text-transform:none;color:#9AA3A8}
+input:focus{outline:3px solid var(--warm);outline-offset:2px}
+button{font-family:inherit;font-size:13.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:13px 22px;border:2px solid var(--ink);background:var(--ink);color:var(--paper);cursor:pointer;border-radius:0}
+button:active{transform:translateY(1px)}
+#msg{margin:10px 0 0;font-size:13px;color:var(--mute);min-height:18px}
+#msg.err{color:#A32B2B;font-weight:600}
+
+.card{margin:16px 0 26px;border:2px solid var(--ink);background:#fff;display:none}
+.card.on{display:flex;flex-wrap:wrap;animation:rise .25s ease-out}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.card .badge{width:74px;flex:0 0 auto;display:grid;place-items:center;color:#fff;font-size:30px;font-weight:800;background:var(--ink)}
+.card .info{padding:12px 16px;flex:1 1 260px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px 18px}
+.card .info .f{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:600;margin-top:6px}
+.card .info .v{font-size:14.5px;font-weight:600;overflow-wrap:anywhere}
+
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:0 0 14px;font-size:11px;color:var(--mute)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;display:inline-block;border:1px solid var(--line)}
+
+.diagram{background:var(--slab);border:1px solid var(--line);padding:16px 14px 12px;overflow-x:auto}
+.band{display:flex;gap:10px;justify-content:center;margin-bottom:10px;flex-wrap:nowrap}
+.bandcap{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--mute);font-weight:600;margin:2px 0 6px;display:flex;align-items:center;gap:8px}
+.bandcap::after{content:'';flex:1;height:1px;background:var(--line)}
+.block{background:#fff;border:1px solid var(--line);padding:6px}
+.blabel{display:flex;align-items:baseline;gap:6px;margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--c,var(--ink))}
+.blabel .bk{font-size:15px;font-weight:800;color:var(--c,var(--ink))}
+.blabel .bs{font-size:9px;color:var(--mute);letter-spacing:.03em;flex:1}
+.blabel .bc{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--mute)}
+.seatgrid{display:grid;gap:2px}
+.seat{width:13px;height:13px;background:#fff;border:1px solid var(--line);cursor:default}
+.seat.occ{background:var(--c,var(--ink));border-color:var(--c,var(--ink));cursor:pointer}
+.seat.occ:hover,.seat.occ.hit{outline:2px solid var(--warm);outline-offset:1px}
+.seat.wedge.vac{background:repeating-linear-gradient(135deg,#fff,#fff 3px,var(--slab) 3px,var(--slab) 6px)}
+.stage{background:var(--ink);color:var(--paper);text-align:center;padding:7px;font-size:9.5px;letter-spacing:.3em;text-transform:uppercase;font-weight:600;margin-top:4px}
+
+footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--mute);line-height:1.7}
+@media(max-width:640px){.seat{width:10px;height:10px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body>
+<div class="wrap">
+<div class="eyebrow">__COURSE__ · __SESSION__</div>
+<h1>__TITLE__</h1>
+<p class="lede">__COHORT__ &mdash; click any filled seat, or search a roll number below, to spotlight who sits where.</p>
+<div class="rule"></div>
+
+<div class="meta" id="meta"></div>
+
+<form id="f" autocomplete="off">
+<input id="q" placeholder="Roll number, e.g. B26XX1234" inputmode="text" autocapitalize="characters" spellcheck="false" aria-label="Roll number">
+<button type="submit">Find</button>
+</form>
+<p id="msg"></p>
+
+<div class="card" id="card">
+<div class="badge" id="cbadge"></div>
+<div class="info" id="cinfo"></div>
+</div>
+
+<div class="legend">
+<span><i class="sw" style="background:#fff;border-color:var(--line)"></i>Vacant</span>
+<span><i class="sw" style="background:var(--ink)"></i>Occupied</span>
+<span><i class="sw" style="background:repeating-linear-gradient(135deg,#fff,#fff 3px,var(--slab) 3px,var(--slab) 6px)"></i>Wedge / transition seat</span>
+</div>
+
+<div class="diagram" id="diagram"></div>
+
+<footer id="foot"></footer>
+</div>
+<script>
+const P=__DATA__;
+const ORDER=__ORDER__;
+const FRONT=__FRONT__;
+const REAR=__REAR__;
+const COLOUR={A:'#C9721B',B:'#12706B',C:'#7A3560',D:'#4F6B1E',E:'#1F5D8C',F:'#8A4B12',G:'#5A3E8C'};
+
+document.getElementById('meta').innerHTML=[
+ ['Students',P.meta.n],
+ ['Room capacity',P.meta.cap],
+ ['Wedge / transition seats',P.meta.wedge],
+ ...(P.meta.en||P.meta.hi?[['English · Hindi',P.meta.en+' · '+P.meta.hi]]:[]),
+].map(([k,v])=>`<div><b>${v}</b>${k}</div>`).join('');
+
+document.getElementById('foot').textContent=
+ 'Block mode: a student is allotted a block, not a fixed chair, and may sit anywhere inside it. '+
+ 'Seat codes exist as a record and a printing/attendance order, not a literal chair assignment. '+
+ 'This page holds full names and is for staff use only -- do not publish it.';
+
+function blockCols(seats){
+ const row1=seats.filter(s=>s.r===1);
+ return row1.length||Math.max(...seats.map(s=>s.x));
+}
+function blockRows(seats){
+ return Math.max(...seats.map(s=>s.r));
+}
+
+function renderBlock(key){
+ const b=P.blocks[key];
+ if(!b)return '';
+ const col=COLOUR[key]||'#3A3A3A';
+ const cols=blockCols(b.seats), rows=blockRows(b.seats);
+ const byRow={};
+ b.seats.forEach(s=>{(byRow[s.r]=byRow[s.r]||[]).push(s);});
+ let cells='';
+ Object.keys(byRow).forEach(r=>{
+  const rowSeats=byRow[r].slice().sort((a,c)=>a.x-c.x);
+  const offset=Math.floor((cols-rowSeats.length)/2);
+  rowSeats.forEach(s=>{
+   const occ=s.v===0;
+   const title=occ?`${s.c} · ${s.roll} · ${s.n}`:`${s.c} · vacant`;
+   cells+=`<div class="seat ${occ?'occ':'vac'} ${s.k==='extra'?'wedge':''}"
+     style="grid-row:${s.r};grid-column:${s.x+offset};--c:${col}"
+     data-seat="${s.c}" data-block="${key}" ${occ?`data-roll="${(s.roll||'').replace(/"/g,'&quot;')}"`:''}
+     title="${title.replace(/"/g,'&quot;')}"></div>`;
+  });
+ });
+ return `<div class="block" data-block="${key}">
+   <div class="blabel" style="--c:${col}">
+     <span class="bk">${key}</span><span class="bs">${b.side}</span>
+     <span class="bc">${b.occ}/${b.total}</span>
+   </div>
+   <div class="seatgrid" style="grid-template-columns:repeat(${cols},13px);grid-template-rows:repeat(${rows},13px)">${cells}</div>
+ </div>`;
+}
+
+const diagram=document.getElementById('diagram');
+[['rear',REAR],['front',FRONT]].forEach(([sec,keys])=>{
+ const present=keys.filter(k=>P.blocks[k]);
+ if(!present.length)return;
+ const cap=(FRONT.length&&REAR.length)?`<div class="bandcap">${sec==='rear'?'Rear gallery':'Front section'}</div>`:'';
+ diagram.insertAdjacentHTML('beforeend', cap+`<div class="band">${present.map(renderBlock).join('')}</div>`);
+});
+diagram.insertAdjacentHTML('beforeend','<div class="stage">Stage this side</div>');
+
+const byRoll={};
+Object.entries(P.blocks).forEach(([key,b])=>b.seats.forEach(s=>{
+ if(s.roll)byRoll[s.roll.trim().toUpperCase()]={...s,block:key};
+}));
+
+const q=document.getElementById('q'),msg=document.getElementById('msg'),card=document.getElementById('card');
+function clearHit(){document.querySelectorAll('.seat.hit').forEach(n=>n.classList.remove('hit'));}
+
+function showSeat(s,quiet){
+ clearHit(); card.classList.remove('on');
+ const b=P.blocks[s.block];
+ document.getElementById('cbadge').textContent=s.block;
+ document.getElementById('cbadge').style.background=COLOUR[s.block]||'#3A3A3A';
+ const fields=[['Roll',s.roll],['Name',s.n],['Block · seat',`${s.block} · ${s.c} · ${b.side}`],
+   ['Program',s.p],['Group',s.g],['Medium',s.m]].filter(([,v])=>v);
+ document.getElementById('cinfo').innerHTML=fields.map(([k,v])=>
+   `<div><div class="f">${k}</div><div class="v">${v}</div></div>`).join('');
+ card.classList.add('on');
+ const el=document.querySelector(`.seat[data-block="${s.block}"][data-seat="${s.c}"]`);
+ if(el){el.classList.add('hit'); if(!quiet)el.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});}
+}
+
+document.getElementById('f').addEventListener('submit',e=>{e.preventDefault();look();});
+q.addEventListener('input',()=>{if(q.value.trim().length>=8)look(true);});
+
+function look(quiet){
+ const raw=q.value.trim();
+ if(!raw){msg.className='';msg.textContent='';clearHit();card.classList.remove('on');return;}
+ const s=byRoll[raw.toUpperCase()];
+ if(s){msg.className='';msg.textContent='';showSeat(s,quiet);return;}
+ if(!quiet){msg.className='err';msg.textContent='That roll number is not seated in this room -- check the batch/room, or it may not be on this list yet.';}
+}
+
+diagram.addEventListener('click',e=>{
+ const seat=e.target.closest('.seat.occ');
+ if(!seat)return;
+ const s=byRoll[(seat.dataset.roll||'').toUpperCase()];
+ if(s){q.value=s.roll; msg.className=''; msg.textContent=''; showSeat(s,true);}
+});
+</script></body></html>

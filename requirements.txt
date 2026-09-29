@@ -1,0 +1,10 @@
+pandas>=2.0
+openpyxl>=3.1
+reportlab>=3.5
+streamlit>=1.62   # dashboard.py: control-panel web UI; 1.62 is where st.iframe
+                  # arrived, replacing the deprecated st.components.v1.html
+pypdf>=4.0        # dashboard.py: optional merge of per-block sheets into one PDF
+xlrd>=2.0.1       # seating.py: reads legacy .xls rosters (e.g. student_rollList-<CODE>.xls)
+qrcode>=7.4        # posters.py: QR on the hall-door poster; the poster still
+                   # prints (URL only) if it's missing, so it stays optional
+pytest>=8.0        # tests/: run with `.venv-$(uname -s)/bin/python -m pytest tests -q`

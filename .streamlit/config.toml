@@ -1,0 +1,90 @@
+# Dashboard design tokens. Project-level (not per-machine) so the three synced
+# machines look identical. Colours are defined for light AND dark: the viewer
+# switches in the ⋮ menu → Settings, and every custom rule in dashboard.py
+# reads the active theme rather than hardcoding a light palette.
+
+[theme]
+base = "light"
+# Inter for text, JetBrains Mono for the roll numbers and paths that appear
+# everywhere in this tool. Served from a CDN, so an offline machine simply
+# falls back to the system sans/mono - nothing breaks, it just looks plainer.
+font = "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+headingFont = "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+codeFont = "JetBrains Mono, SFMono-Regular, Menlo, monospace"
+baseFontSize = 15
+baseRadius = "0.65rem"
+buttonRadius = "0.55rem"
+showWidgetBorder = true
+showSidebarBorder = false
+linkUnderline = false
+metricValueFontSize = "2.1rem"
+metricValueFontWeight = 650
+headingFontWeights = [700, 650, 600, 600, 600, 600]
+# Blocks A–G, in config.BLOCK_COLOUR order - a chart of per-block numbers then
+# uses the same colours as the hall plan, the poster and the signature sheets.
+chartCategoricalColors = ["#C9721B", "#12706B", "#7A3560", "#4F6B1E", "#1F5D8C", "#8A4B12", "#5A3E8C"]
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/files/inter-latin-400-normal.woff2"
+weight = 400
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/files/inter-latin-500-normal.woff2"
+weight = 500
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/files/inter-latin-600-normal.woff2"
+weight = 600
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/files/inter-latin-700-normal.woff2"
+weight = 700
+[[theme.fontFaces]]
+family = "JetBrains Mono"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.20/files/jetbrains-mono-latin-400-normal.woff2"
+weight = 400
+
+[theme.light]
+primaryColor = "#0F766E"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F6F8"
+textColor = "#14181D"
+borderColor = "#E4E7EB"
+linkColor = "#0F766E"
+codeBackgroundColor = "#F5F6F8"
+dataframeHeaderBackgroundColor = "#F5F6F8"
+
+# The sidebar is deliberately dark in *both* themes - it reads as chrome
+# rather than content, which is what makes a nav column stop competing with
+# the page beside it.
+[theme.light.sidebar]
+primaryColor = "#2DD4BF"
+backgroundColor = "#12161B"
+secondaryBackgroundColor = "#1B2027"
+textColor = "#D7DBE0"
+borderColor = "#252B33"
+linkColor = "#2DD4BF"
+
+[theme.dark]
+primaryColor = "#2DD4BF"
+backgroundColor = "#0B0E12"
+secondaryBackgroundColor = "#141920"
+textColor = "#E6E9ED"
+borderColor = "#232A33"
+linkColor = "#2DD4BF"
+codeBackgroundColor = "#141920"
+dataframeHeaderBackgroundColor = "#141920"
+
+[theme.dark.sidebar]
+primaryColor = "#2DD4BF"
+backgroundColor = "#0F1318"
+secondaryBackgroundColor = "#181D24"
+textColor = "#D7DBE0"
+borderColor = "#232A33"
+
+[client]
+toolbarMode = "viewer"
+
+[server]
+runOnSave = true
