@@ -27,6 +27,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -72,6 +73,9 @@ def _bootstrap_sample_data() -> bool:
     return make_sample_data.ensure_installed()
 
 
+# Every page reads the workbooks and out/ relative to the project folder. The
+# launchers cd there first; a host that starts Streamlit from elsewhere does not.
+os.chdir(Path(__file__).resolve().parent)
 try:
     _bootstrap_sample_data()
 except Exception as e:                              # noqa: BLE001 - shown verbatim

@@ -1,11 +1,55 @@
 # Course Attendance & Seating Dashboard
 
+[![tests](https://github.com/kkreboot/course-attendance-dashboard/actions/workflows/tests.yml/badge.svg)](https://github.com/kkreboot/course-attendance-dashboard/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://course-attendance-dashboard.streamlit.app)
+
 A Streamlit dashboard and Python toolkit for running attendance, classroom
 seating, exam seating and student mail for one large course. It works for
 any course: the course code, title, session, institute, mail domain and
 instructors are one block in `config.py`. It grew out of running a
 ~365-student first-year course taught in two batches in two halls, and the
 demo (`DEMO101`) reproduces that scale with invented students.
+
+**Live demo:** <https://course-attendance-dashboard.streamlit.app> (invented
+data; mail can be composed and rehearsed but never sent).
+
+## Features
+
+- **Classroom seating**: allocate a batch to the blocks of a hall, grouped by
+  branch, then print per-block signature sheets, a seating workbook and an
+  interactive hall plan.
+- **Exam seating**: spaced seating across several rooms, seat maps for the
+  notice board, a printable invigilator pack and TA duty postings.
+- **Attendance**: percentages and the below-threshold list read straight from
+  the register workbook, with a PDF report for handing over.
+- **Student mail**: seating, exam and attendance notices composed per student
+  or per block, sent over SMTP or handed off to Gmail compose windows.
+- **Self-lookup pages**: "find your block" and "find my seat" pages that are
+  safe to publish (roll numbers hashed, no names).
+- **Safety net**: snapshots before every write, a health check over every
+  invariant, and a test suite run on every push.
+
+## Screenshots
+
+| Overview | Allocate seats |
+|---|---|
+| ![Overview](docs/screenshots/overview.png) | ![Allocate seats](docs/screenshots/allocate-seats.png) |
+| **Exam seating** | **Attendance summary** |
+| ![Exam seating](docs/screenshots/exam-seating.png) | ![Attendance summary](docs/screenshots/attendance-summary.png) |
+| **Email students** | **Health check** |
+| ![Email students](docs/screenshots/email-students.png) | ![Health check](docs/screenshots/health-check.png) |
+
+## Use it for your course
+
+Everything course-specific lives in one block at the top of
+[`config.py`](config.py): course code and title, session, institute,
+department, mail domain, lookup URL and the workbook names, with the
+instructors (`COURSE_INSTRUCTORS`) and halls (`ROOMS`, `BRANCH_GROUPS`) just
+below. No other file names the course. Edit that block, put your own
+workbooks in the project root (layouts in `sample_data/`), and the dashboard
+reads them instead of the demo set. The full checklist is under
+[Set it up for your course](#set-it-up-for-your-course).
 
 ## Try it in two minutes (sample data)
 
@@ -55,6 +99,15 @@ out of git, so real student data cannot be committed by accident; only
 | `<CODE>_TA_Duty_Assignment.xlsx` | TA duties, plus the answer-script showing schedule |
 | `student_rollList-<CODE>.xlsx` | The department's roll-list export (exam roster order) |
 | `LHC Seating Plan.xlsx` | Exam-hall geometry (seat numbers only, no people) |
+
+## Deploy your own demo (Streamlit Community Cloud)
+
+Fork the repo, then at <https://share.streamlit.io> choose **Create app**,
+pick the fork, branch `main`, main file `dashboard.py`, and under Advanced
+settings Python 3.12. On first start the dashboard installs the invented
+workbooks from `sample_data/` (never over an existing file). With no SMTP
+secrets set, sending stays disabled: mail is composed, previewed and
+rehearsed only.
 
 ## Overview
 
