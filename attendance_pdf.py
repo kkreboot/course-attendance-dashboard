@@ -44,7 +44,7 @@ AMBER_FILL, AMBER_INK = (0.99, 0.94, 0.82), (0.55, 0.36, 0.05)
 PURPLE_FILL, PURPLE_INK = (0.93, 0.90, 0.97), (0.38, 0.24, 0.60)
 TILE_FILL = (0.95, 0.96, 0.95)
 
-DEFAULT_BENCHMARK = 85.0
+DEFAULT_BENCHMARK = C.ATTENDANCE_BENCHMARK   # Course setup page
 
 
 def _fmt_pct(value, dp: int = 1) -> str:

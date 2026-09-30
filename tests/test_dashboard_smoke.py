@@ -17,7 +17,7 @@ DASHBOARD = str(Path(__file__).resolve().parent.parent / "dashboard.py")
 PAGES = ["Overview", "Allocate seats", "Signature sheets", "Seat allotment PDF",
          "Find your block", "Move a student", "Posters & packs", "Exam seating",
          "Answer script showing", "Student lookup", "Attendance summary",
-         "Email students", "Health check"]
+         "Email students", "Health check", "Course setup"]
 
 
 def run_page(name: str, **state) -> AppTest:

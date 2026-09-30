@@ -478,8 +478,38 @@ def attrep_pct(value) -> str:
     return out[:-2] if out.endswith(".0") else out
 
 
+def check_course_settings() -> list[dict]:
+    """The Course setup page's file: present, readable, and not the demo's."""
+    import course_settings as cs
+
+    g = "Course"
+    if not cs.exists():
+        return [_result("Course set up", "warn",
+                        f"No `{cs.SETTINGS_FILE}` - running on the demo course ({C.COURSE}).",
+                        "Fill in Maintenance › Course setup.", g)]
+    if not cs.read_raw():
+        return [_result("Course set up", "fail", f"`{cs.SETTINGS_FILE}` is unreadable.",
+                        "Open Course setup and save again (a snapshot of the old file is kept).", g)]
+    s = cs.load()
+    out = []
+    bad = cs.problems(s)
+    out.append(_result("Course settings valid", "fail" if bad else "ok",
+                       "; ".join(bad[:3]) if bad else f"{C.COURSE} · {C.SESSION}",
+                       "Correct them on the Course setup page." if bad else "", g))
+    left = cs.demo_leftovers(s)
+    if left:
+        out.append(_result("No demo values left", "warn", "still the demo's: " + ", ".join(left),
+                           "Replace them on the Course setup page.", g))
+    missing = [name for name in (C.ATTENDANCE_WORKBOOK,) if not Path(name).exists()]
+    if missing:
+        out.append(_result("Course workbooks in place", "warn",
+                           "not found: " + ", ".join(missing),
+                           "Upload it on Course setup › Files.", g))
+    return out
+
+
 def run_all() -> pd.DataFrame:
-    rows: list[dict] = []
+    rows: list[dict] = check_course_settings()
     cohorts = _cohorts()
     if not cohorts:
         rows.append(_result("Any allocation at all", "fail",

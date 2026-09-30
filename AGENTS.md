@@ -176,7 +176,9 @@ fully stopped and restarted, not just left to auto-reload.
 
 | File | Role |
 |---|---|
-| `config.py` | Course instructors (`COURSE_INSTRUCTORS`: names + addresses, the single source for both the printed names and the mail Cc), hall geometry (`ROOMS`, `Block` dataclass), branch-grouping (`BRANCH_GROUPS`), per-block colours, signature-sheet page geometry. Edit this first for a new room. |
+| `course_settings.py` | The course's own details in `course_settings.json` (written by the Course setup page): `load()` merges the file over the demo `DEFAULTS`, `problems()` validates, `save()` writes atomically. Imports nothing from the toolkit - config imports *it*. `COURSE_SETTINGS_FILE` overrides the path (the tests use it to stay on the demo). |
+| `course_setup.py` | Behind the Course setup page: hall/branch tables ↔ settings, upload checks and install under the expected names, renaming workbooks when the course code changes, and `reload_toolkit()` (see gotcha below). |
+| `config.py` | Values from `course_settings.json` (demo defaults without it). Course instructors (`COURSE_INSTRUCTORS`: names + addresses, the single source for both the printed names and the mail Cc), hall geometry (`ROOMS`, `Block` dataclass), branch-grouping (`BRANCH_GROUPS`), per-block colours, signature-sheet page geometry. Edit this first for a new room. |
 | `seating.py` | Roster loading (auto-detects sheet/header shape), `load_attendance_roster` (the master Class Attendance workbook, in register order), seat map, `allocate`/`allocate_grouped`, `reorder_within_blocks`, `move_student`, `vacant_seats`, `block_summary`. |
 | `reports.py` | Seating workbook (xlsx) + interactive hall-plan HTML (`plan_template.html`, real interactive plan - falls back to a one-line stub if that template file is ever missing). |
 | `sheets.py` | Signature-sheet PDFs (one per block) + `template.json` recording what was printed - the dashboard discovers cohorts by that file. Optional `attendance=`/`att_asof=` add a per-student attendance column (the "next class" sheet). |
@@ -935,6 +937,30 @@ the room name: given no `reg_order` it ranks over every batch sheet (rolls are
 unique across batches, so the order within a block is the same). The Move page's
 reorder defaults to register order - the two roll-number orders it offered
 before put blocks out of the order the health check verifies.
+
+## Course setup, and why saving reloads the toolkit
+
+`config.py` no longer holds the course: it reads `course_settings.load()` at
+import and exposes the same names as before (`COURSE`, `ROOMS`,
+`COURSE_INSTRUCTORS`, `BRANCH_GROUPS`, ...) plus `TA_*`, `ATTENDANCE_*`,
+`TOTAL_CLASSES`, `EXCUSED_MODE`, `MAIL_SENDER`. `mailer.SIGNATURE`,
+`ATTENDANCE_SIGNATURE`, `ATTENDANCE_THRESHOLD` and `ATTENDANCE_LEVELS` are
+built from those; so are `attendance_report.EXCUSED_MODE` and
+`attendance_pdf.DEFAULT_BENCHMARK`.
+
+Many values are captured at import - `course=C.COURSE` default arguments,
+`INSTITUTE_DOMAIN = C.EMAIL_DOMAIN` - and Streamlit reruns only
+`dashboard.py`. So a save calls `course_setup.reload_toolkit()`, which
+re-imports every module in dependency order (`TOOLKIT_MODULES`). A new module
+that reads config at import belongs in that list, after what it imports. If
+something still shows the old course, a restart settles it.
+
+The first run (no settings file) opens on Course setup; the tests set
+`phl_page` themselves, so they never see that. Halls in the form are the
+classroom halls only; exam venues still come from `LHC Seating Plan.xlsx`.
+Removing or renaming a hall that an existing `out/<cohort>/<hall>_seating.xlsx`
+was built for is allowed, with a warning to re-allocate that batch.
+`BLOCK_COLOUR` falls back to a colour cycle, so blocks past G work.
 
 ## Gotcha: the Class Attendance workbook's columns drift
 

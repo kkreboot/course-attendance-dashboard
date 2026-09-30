@@ -31,6 +31,8 @@ from datetime import datetime
 import openpyxl
 import pandas as pd
 
+import config as C
+
 DATE_ROW = 2
 LABEL_ROW = 3
 FIRST_DATA_ROW = 4
@@ -46,7 +48,7 @@ FIRST_DATA_ROW = 4
 #   "present"           - counted as attendance.
 # Either way `Absent` counts only unexcused absences, which is the number the
 # shortfall mail and the defaulter list are based on.
-EXCUSED_MODE = "exclude"
+EXCUSED_MODE = C.EXCUSED_MODE   # Course setup page; "exclude" unless changed there
 
 # A student cell may also carry "N/A" - the same marker the workbook already
 # uses in row 3 for a spacer column, here meaning "this class does not apply

@@ -72,7 +72,7 @@ MAIL_LOG = Path("out") / "mail_log.csv"
 # Seat ids look like "A-001" / "LHC110 B-12" - anything of that shape must not
 # appear in a classroom transition mail. Roll numbers ("B26BB1901") have no
 # hyphen and so don't trip this.
-SEAT_TOKEN_RE = re.compile(r"\b[A-G]-\s?\d{1,3}\b")
+SEAT_TOKEN_RE = re.compile(r"\b[A-Z]-\s?\d{1,3}\b")   # any block letter, not just A-G
 ROLL_RE = re.compile(r"^[A-Za-z0-9]+$")
 # Google displays an app password as four space-separated groups of four.
 APP_PASSWORD_RE = re.compile(r"[A-Za-z0-9]{4}(?: [A-Za-z0-9]{4}){3}")
@@ -183,7 +183,7 @@ def load_smtp_config(config_file: str | Path = CONFIG_FILE) -> SMTPConfig:
 
     port = int(pick("COURSE_SMTP_PORT", "port", 587) or 587)
     user = pick("COURSE_SMTP_USER", "user")
-    sender = pick("COURSE_SMTP_FROM", "from") or user
+    sender = pick("COURSE_SMTP_FROM", "from") or user or C.MAIL_SENDER
     cfg = SMTPConfig(
         host=pick("COURSE_SMTP_HOST", "host"),
         port=port,
@@ -192,7 +192,7 @@ def load_smtp_config(config_file: str | Path = CONFIG_FILE) -> SMTPConfig:
                                  or env_file.get("COURSE_SMTP_PASSWORD", "")),
         sender=sender,
         sender_name=pick("COURSE_SMTP_FROM_NAME", "from_name", f"{C.COURSE_CODE} Course Office"),
-        reply_to=pick("COURSE_SMTP_REPLY_TO", "reply_to"),
+        reply_to=pick("COURSE_SMTP_REPLY_TO", "reply_to") or C.TA_EMAIL,
         bcc=pick("COURSE_MAIL_BCC", "bcc"),
         use_ssl=str(pick("COURSE_SMTP_SSL", "ssl", "")).lower() in {"1", "true", "yes"} or port == 465,
     )
@@ -336,21 +336,28 @@ DEFAULT_ATTENDANCE_CC = C.instructor_emails()
 # to come and talk to someone, so they name who wrote them. Kept verbatim as
 # supplied, Devanagari included - the body is sent as UTF-8, and the Gmail
 # compose URL percent-encodes it, so both paths carry it intact.
-SIGNATURE = f"""Your Name / आपका नाम
-Your Roll Number
-Teaching Assistant
-{C.DEPARTMENT}
-{C.INSTITUTE}"""
+def _signature_block(*lines: str) -> str:
+    return "\n".join(x for x in lines if x)
+
+
+# Built from the Course setup page (config.TA_*): who signs is a person, and
+# it's the same person on every mail, so it is entered once.
+_ta_name = (f"{C.TA_NAME} / {C.TA_NAME_LOCAL}" if C.TA_NAME_LOCAL and C.TA_NAME
+            else C.TA_NAME or C.TA_NAME_LOCAL)
+SIGNATURE = _signature_block(_ta_name, C.TA_ROLL, C.TA_ROLE, C.DEPARTMENT, C.INSTITUTE)
 
 # The attendance notices sign off shorter, in the wording the course supplied:
 # these go to a hundred students at a time and read as a note from their TA,
 # not as a letter from an office with an address.
-ATTENDANCE_SIGNATURE = f"""Your Name
-Teaching Assistant, {C.COURSE}
-{C.DEPARTMENT}, {C.INSTITUTE_SHORT}"""
+ATTENDANCE_SIGNATURE = _signature_block(
+    C.TA_NAME, f"{C.TA_ROLE}, {C.COURSE}",
+    ", ".join(x for x in (C.DEPARTMENT, C.INSTITUTE_SHORT) if x))
+
+# The default contact line under a mail (office hours, a phone number).
+DEFAULT_CONTACT = C.TA_CONTACT
 
 # The attendance requirement the notices are written against.
-ATTENDANCE_THRESHOLD = 75.0
+ATTENDANCE_THRESHOLD = C.ATTENDANCE_THRESHOLD
 
 
 # Escalation steps, by absences. A student who has been written to at "5+" and
@@ -358,10 +365,14 @@ ATTENDANCE_THRESHOLD = 75.0
 # for the same level is noise that teaches people to ignore it. The level is
 # recorded in the log's `kind`, so `unmailed_attendance` can tell "already
 # warned at this level" from "has since got worse".
-ATTENDANCE_LEVELS = [(5, "L1"), (9, "L2"), (13, "L3")]
+ATTENDANCE_LEVELS = [(n, f"L{i}") for i, n in enumerate(C.ATTENDANCE_LEVELS, start=1)]
 LEVEL_NOTE = {
-    "L2": "This is a second notice - your absences have increased since the last one.",
-    "L3": "This is a final notice. Please meet the course instructor before the next class.",
+    name: ("This is a final notice. Please meet the course instructor before the next class."
+           if i == len(ATTENDANCE_LEVELS) else
+           "This is a second notice - your absences have increased since the last one."
+           if i == 2 else
+           "This is a further notice - your absences have increased since the last one.")
+    for i, (_, name) in enumerate(ATTENDANCE_LEVELS, start=1) if i >= 2
 }
 
 

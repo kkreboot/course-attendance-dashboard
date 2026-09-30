@@ -43,3 +43,7 @@ __pycache__/
 *.Conflicted copy*
 /tmp/
 *.lock
+
+# Course setup page (names and addresses of real people)
+course_settings.json
+course_settings.json.tmp

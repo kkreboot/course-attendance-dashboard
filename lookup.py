@@ -182,7 +182,7 @@ def student_record(roll: str, *, workbook: str | Path | None = seating.ATTENDANC
             rec.batch = sh
             held_cls = sessions[(sessions.Present + sessions.Absent + sessions.Excused) > 0]
             course_len = int(total_classes or float(settings.get("total classes (course)") or 0)
-                             or len(sessions))
+                             or C.TOTAL_CLASSES or len(sessions))
             remaining = max(0, course_len - len(held_cls))
             credited = int(r.Held) - int(r.Absent)
             pct = None if pd.isna(r.Percent) else float(r.Percent)

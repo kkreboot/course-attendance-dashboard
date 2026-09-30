@@ -41,6 +41,8 @@ import attendance_pdf as attpdf
 import attendance_report as attrep
 import bundle
 import checks
+import course_settings
+import course_setup
 import config as C
 import exam_plan
 import exam_rooms
@@ -574,6 +576,7 @@ PAGES = {
     ],
     "Maintenance": [
         ("stethoscope", "Health check", "Verify every invariant, undo a bad build"),
+        ("tune", "Course setup", "Course details, people, rules, halls, files"),
     ],
 }
 PAGE_META = {name: (icon, tip) for group in PAGES.values() for icon, name, tip in group}
@@ -581,13 +584,18 @@ PAGE_ORDER = list(PAGE_META)
 
 with st.sidebar:
     st.markdown(
-        '<div class="phl-brand"><div class="logo">PH</div>'
+        f'<div class="phl-brand"><div class="logo">{C.COURSE_CODE[:2].upper()}</div>'
         f'<div><div class="t">{C.COURSE_CODE}</div><div class="s">Control Panel</div></div></div>',
         unsafe_allow_html=True)
     st.markdown(_status_chips(vertical=True), unsafe_allow_html=True)
+    if not course_settings.exists():
+        st.caption("Running on the **demo course**. Set up yours under "
+                   "Maintenance › Course setup.")
 
     if st.session_state.get("phl_page") not in PAGE_META:
-        st.session_state["phl_page"] = PAGE_ORDER[0]
+        # first run: no course set up yet, so open on the setup form
+        st.session_state["phl_page"] = (PAGE_ORDER[0] if course_settings.exists()
+                                        else "Course setup")
     for group, items in PAGES.items():
         st.caption(group.upper())
         for icon, name, tip in items:
@@ -1475,7 +1483,7 @@ if PAGE == "Move a student":
             ec1, ec2 = st.columns(2)
             eff = ec1.text_input("Effective from (optional)", "the next class",
                                  key="move_mail_effective")
-            contact = ec2.text_input("Contact line in the signature (optional)", "",
+            contact = ec2.text_input("Contact line in the signature (optional)", mailer.DEFAULT_CONTACT,
                                      key="move_mail_contact")
             try:
                 mails = [mailer.build_transition_mail(
@@ -2251,9 +2259,9 @@ if PAGE == "Attendance summary":
             # second copy being kept here
             wb_dash = attrep.dashboard_blocks(str(att_path))
             wb_set = wb_dash.get("settings", {})
-            thr_default = int(float(wb_set.get("threshold (%)") or 75))
+            thr_default = int(float(wb_set.get("threshold (%)") or C.ATTENDANCE_THRESHOLD))
             bench_default = float(wb_set.get("class benchmark (%)") or 0) or None
-            total_course = int(float(wb_set.get("total classes (course)") or 0))
+            total_course = int(float(wb_set.get("total classes (course)") or 0) or C.TOTAL_CLASSES)
             threshold = st.slider("Defaulter threshold - below this % is flagged", 0, 100,
                                   thr_default, key="attrep_threshold")
             if wb_set:
@@ -2268,6 +2276,7 @@ if PAGE == "Attendance summary":
             exc_mode = st.radio(
                 "Excused absences (**E** - medical receipt or another accepted reason)",
                 ["Don't count that class at all", "Count it as present"],
+                index=0 if C.EXCUSED_MODE == "exclude" else 1,
                 horizontal=True, key="attrep_excused",
                 help="An E is never counted as an absence either way, so it can't trigger a "
                      "shortfall notice. This only decides what it does to the percentage: "
@@ -2695,6 +2704,239 @@ if PAGE == "Student lookup":
             with st.expander("Summary to paste into a reply"):
                 st.code("\n".join(lines_l), language=None)
 
+# ───────────────────────── Course setup ─────────────────────────
+if PAGE == "Course setup":
+    page_header("Course setup",
+                "The course's details, entered once - every page, sheet, poster and mail uses them.")
+    flash = st.session_state.pop("setup_flash", None)
+    if flash:
+        st.success(flash)
+    have_settings = course_settings.exists()
+    cur = course_settings.load()
+    if not have_settings:
+        st.info("**No course set up yet** - the dashboard is running on the demo course "
+                f"(**{C.COURSE}**). Fill in the tabs below and press **Save course settings** "
+                "at the bottom. You can come back and change anything later from "
+                "**Maintenance › Course setup**.")
+        if st.button("Just explore the demo for now", key="setup_skip"):
+            st.session_state["phl_page"] = "Overview"
+            st.rerun()
+    else:
+        leftovers = course_settings.demo_leftovers(cur)
+        st.caption(f"Saved in `{course_settings.SETTINGS_FILE}`"
+                   + (f" on {cur['saved'].replace('T', ' ')}" if cur.get("saved") else "")
+                   + ". It syncs with the folder, so every machine uses the same settings.")
+        if leftovers:
+            st.warning("Still the demo's value: " + ", ".join(f"`{x}`" for x in leftovers))
+
+    c_, i_, t_, a_ = cur["course"], cur["institute"], cur["ta"], cur["attendance"]
+    with st.form("course_setup_form", border=False):
+        tab_c, tab_p, tab_a, tab_h, tab_f = st.tabs(
+            ["Course", "Institute & people", "Attendance rules", "Halls", "Files"])
+
+        with tab_c:
+            s1, s2 = st.columns([1, 2])
+            f_code = s1.text_input("Course code", c_["code"], key="setup_code",
+                                   help="Letters and digits, e.g. PHL1010. Used in file names.")
+            f_title = s2.text_input("Course title", c_["title"], key="setup_title")
+            s3, s4, s5, s6 = st.columns(4)
+            f_session = s3.text_input("Session / semester", c_["session"], key="setup_session",
+                                      placeholder="AY 2026-27 Sem 1")
+
+            def _d(v):
+                try:
+                    return date.fromisoformat(v) if v else None
+                except ValueError:
+                    return None
+            f_start = s4.date_input("First class", _d(c_.get("start_date")), key="setup_start",
+                                    format="DD/MM/YYYY")
+            f_end = s5.date_input("Last class", _d(c_.get("end_date")), key="setup_end",
+                                  format="DD/MM/YYYY")
+            f_total = s6.number_input("Classes planned", min_value=1, step=1,
+                                      value=max(1, int(c_.get("total_classes") or 1)),
+                                      key="setup_total",
+                                      help="The whole course. Used for 'classes still to come' "
+                                           "when the workbook's Dashboard sheet doesn't say.")
+
+        with tab_p:
+            p1, p2 = st.columns(2)
+            f_inst = p1.text_input("Institute", i_["name"], key="setup_inst")
+            f_short = p2.text_input("Short name", i_["short"], key="setup_short",
+                                    help="Used where space is tight, e.g. IITJ.")
+            p3, p4 = st.columns(2)
+            f_dept = p3.text_input("Department", i_["department"], key="setup_dept")
+            f_domain = p4.text_input("Student email domain", i_["email_domain"], key="setup_domain",
+                                     help="Mail goes to <roll number>@this domain.")
+            f_url = st.text_input("Public lookup page URL (optional)", i_.get("lookup_url", ""),
+                                  key="setup_url",
+                                  help="Where the find-your-block page is published; printed as "
+                                       "a QR code on the hall posters.")
+            st.markdown("**Course instructors** - printed on sheets and posters, Cc'd on every mail")
+            f_instr = st.text_area("One per line: Name, email",
+                                   course_settings.format_people(cur["instructors"]),
+                                   key="setup_instructors", height=100)
+            st.markdown("**You, as TA** - the signature on every mail")
+            q1, q2, q3 = st.columns(3)
+            f_ta_name = q1.text_input("Name", t_["name"], key="setup_ta_name")
+            f_ta_local = q2.text_input("Name in second language (optional)", t_.get("name_local", ""),
+                                       key="setup_ta_local",
+                                       help="Printed after your name on bilingual mail, "
+                                            "e.g. Hindi. Leave blank to omit.")
+            f_ta_roll = q3.text_input("Roll number", t_.get("roll", ""), key="setup_ta_roll")
+            q4, q5, q6 = st.columns(3)
+            f_ta_role = q4.text_input("Role", t_.get("role", "Teaching Assistant"), key="setup_ta_role")
+            f_ta_email = q5.text_input("Email (replies come here)", t_.get("email", ""),
+                                       key="setup_ta_email")
+            f_sender = q6.text_input("Send mail from (optional)", cur["mail"].get("sender", ""),
+                                     key="setup_sender",
+                                     help="The From address for direct SMTP sending. The password "
+                                          "is never stored here - it stays in your environment.")
+            f_contact = st.text_input("Contact line under each mail (optional)",
+                                      t_.get("contact", ""), key="setup_contact",
+                                      placeholder="Office hours: Mon 4-5 PM, Room 204")
+            with st.expander("Preview the signatures"):
+                _nm = (f"{f_ta_name} / {f_ta_local}" if f_ta_local and f_ta_name
+                       else f_ta_name or f_ta_local)
+                st.code("\n".join(x for x in [_nm, f_ta_roll, f_ta_role, f_dept, f_inst] if x)
+                        + "\n\n--- attendance notices ---\n"
+                        + "\n".join(x for x in [f_ta_name, f"{f_ta_role}, {f_code} {f_title}",
+                                                ", ".join(y for y in (f_dept, f_short) if y)] if x),
+                        language=None)
+                st.caption("Updates when you save.")
+
+        with tab_a:
+            r1, r2, r3 = st.columns(3)
+            f_thr = r1.number_input("Attendance requirement (%)", 1.0, 100.0,
+                                    float(a_["threshold"]), 1.0, key="setup_thr")
+            f_bench = r2.number_input("Class benchmark (%)", 0.0, 100.0, float(a_["benchmark"]),
+                                      1.0, key="setup_bench",
+                                      help="A class whose turnout is under this is marked in "
+                                           "the report and the trend chart.")
+            f_levels = r3.text_input("Notice after this many absences",
+                                     ", ".join(str(x) for x in a_["levels"]), key="setup_levels",
+                                     help="One number per notice, increasing: 5, 9, 13 sends a "
+                                          "first notice at 5 absences, a second at 9, a final at 13.")
+            f_exc = st.radio("An excused absence (E)",
+                             ["Doesn't count at all (left out of the percentage)",
+                              "Counts as present"],
+                             index=0 if a_["excused"] == "exclude" else 1, key="setup_excused",
+                             horizontal=True)
+            st.caption("The workbook's own Dashboard sheet, when it has one, still sets the "
+                       "defaults on the Attendance summary page; these apply everywhere else "
+                       "and whenever it doesn't.")
+
+        with tab_h:
+            st.markdown("**Classroom halls** - one row per block. Add a row for a new block "
+                        "or hall; select rows and press Delete to remove them.")
+            f_rooms_df = st.data_editor(
+                course_setup.rooms_table(cur), num_rows="dynamic", width="stretch",
+                hide_index=True, key="setup_rooms",
+                column_config={
+                    "Hall": st.column_config.TextColumn(required=True, help="e.g. LHC110"),
+                    "Block": st.column_config.TextColumn(required=True, max_chars=1,
+                                                         help="One capital letter"),
+                    "Side": st.column_config.TextColumn(help="Where it is, e.g. Front left"),
+                    "Rows": st.column_config.NumberColumn(min_value=1, step=1, required=True),
+                    "Seats per row": st.column_config.NumberColumn(min_value=1, step=1, required=True),
+                    "Wedge": st.column_config.TextColumn(
+                        help="Tapering rows behind the last full row, seats in each: 3, 2, 2, 1. "
+                             "Wedge seats are held back for late admissions and transfers."),
+                    "Section": st.column_config.SelectboxColumn(options=["front", "rear"],
+                                                                required=True),
+                })
+            st.markdown("**Branch grouping (optional)** - which branches sit together in "
+                        "which block. Blocks not listed take everyone else.")
+            f_groups_df = st.data_editor(
+                course_setup.groups_table(cur), num_rows="dynamic", width="stretch",
+                hide_index=True, key="setup_groups",
+                column_config={"Branches": st.column_config.TextColumn(
+                    help="Two-letter branch codes from the roll number, e.g. CS, EE, ME")})
+            st.caption("Exam venues are read from the exam-hall seating plan workbook "
+                       "(Files tab), not from this table.")
+
+        with tab_f:
+            st.caption("Each file is checked the way the page that uses it reads it, then saved "
+                       "in the project folder under the name the dashboard looks for. A file "
+                       "already there is snapshotted first (Health check › history).")
+            now = course_setup.installed_files(C.COURSE_CODE)
+            uploads = {}
+            for kind, (label, namer) in course_setup.FILE_KINDS.items():
+                have = now.get(kind)
+                uploads[kind] = st.file_uploader(
+                    f"{label} → `{namer(f_code or C.COURSE_CODE)}`"
+                    + (" (replaces the one there)" if have else ""),
+                    type=["xlsx", "xls"] if kind == "roll_list" else ["xlsx"],
+                    key=f"setup_file_{kind}")
+
+        saved = st.form_submit_button("Save course settings", type="primary")
+
+    # current state of the halls, below the form
+    with st.expander("Seats per hall (as saved)"):
+        st.dataframe(course_setup.capacity(cur["rooms"]), width="stretch", hide_index=True)
+
+    if saved:
+        rooms_new, room_errs = course_setup.rooms_from_table(f_rooms_df)
+        try:
+            levels = course_settings.parse_int_list(f_levels)
+        except ValueError:
+            levels, room_errs = [], room_errs + ["Notice levels must be numbers, e.g. 5, 9, 13."]
+        new = {
+            "course": {"code": f_code.strip(), "title": f_title.strip(),
+                       "session": f_session.strip(),
+                       "start_date": f_start.isoformat() if f_start else "",
+                       "end_date": f_end.isoformat() if f_end else "",
+                       "total_classes": int(f_total)},
+            "institute": {"name": f_inst.strip(), "short": f_short.strip(),
+                          "department": f_dept.strip(),
+                          "email_domain": f_domain.strip().lstrip("@").lower(),
+                          "lookup_url": f_url.strip()},
+            "instructors": course_settings.parse_people(f_instr),
+            "ta": {"name": f_ta_name.strip(), "name_local": f_ta_local.strip(),
+                   "roll": f_ta_roll.strip(), "email": f_ta_email.strip(),
+                   "role": f_ta_role.strip() or "Teaching Assistant",
+                   "contact": f_contact.strip()},
+            "attendance": {"threshold": float(f_thr), "benchmark": float(f_bench),
+                           "levels": levels,
+                           "excused": "exclude" if f_exc.startswith("Doesn't") else "present"},
+            "mail": {"sender": f_sender.strip()},
+            "rooms": rooms_new,
+            "branch_groups": course_setup.groups_from_table(f_groups_df),
+        }
+        errs = room_errs + course_settings.problems(course_settings._merge(course_settings.DEFAULTS, new))
+        file_errs = {}
+        for kind, up in uploads.items():
+            if up is not None:
+                why = course_setup.check_upload(kind, up.getvalue(), up.name)
+                if why:
+                    file_errs[kind] = why
+        if errs or file_errs:
+            st.error("Not saved - fix these first:\n\n" + "\n".join(
+                [f"- {e}" for e in errs]
+                + [f"- {course_setup.FILE_KINDS[k][0]}: {w}" for k, w in file_errs.items()]))
+        else:
+            gone = course_setup.halls_in_use() - set(rooms_new)
+            renames = course_setup.renames_for_code(C.COURSE_CODE, new["course"]["code"])
+            to_replace = [course_setup.FILE_KINDS[k][1](new["course"]["code"])
+                          for k, up in uploads.items() if up is not None]
+            snapshot_before([course_settings.SETTINGS_FILE] + [p for p, _ in renames] + to_replace,
+                            "course-setup")
+            moved = course_setup.apply_renames(renames)
+            course_settings.save(new)
+            put = [course_setup.install_file(k, up.getvalue(), new["course"]["code"])
+                   for k, up in uploads.items() if up is not None]
+            course_setup.reload_toolkit()
+            msg = f"Saved. The dashboard now runs **{new['course']['code']} {new['course']['title']}**."
+            if moved:
+                msg += " Renamed to follow the new course code: " + ", ".join(
+                    f"`{a.name}` → `{b.name}`" for a, b in moved) + "."
+            if put:
+                msg += " Installed: " + ", ".join(f"`{p.name}`" for p in put) + "."
+            if gone:
+                msg += (" Note: existing seating was built for " + ", ".join(sorted(gone))
+                        + ", which is no longer a hall here - re-allocate those batches.")
+            st.session_state["setup_flash"] = msg
+            st.rerun()
+
 # ───────────────────────── Email students ─────────────────────────
 if PAGE == "Email students":
     page_header("Email students", f"Seating changes, exam venues and attendance notices - to <enrolment>@{C.EMAIL_DOMAIN}.")
@@ -2768,7 +3010,7 @@ if PAGE == "Email students":
                 tm3, tm4 = st.columns(2)
                 eff_t = tm3.text_input("Effective from (optional)", "the next class",
                                        key="mail_tr_effective")
-                contact_t = tm4.text_input("Contact line (optional)", "", key="mail_tr_contact")
+                contact_t = tm4.text_input("Contact line (optional)", mailer.DEFAULT_CONTACT, key="mail_tr_contact")
                 st.caption(
                     "Each of these names that student's own old and new block, so they "
                     "are all different messages - Gmail gets one compose window per "
@@ -2824,7 +3066,7 @@ if PAGE == "Email students":
             mc3, mc4 = st.columns(2)
             eff_mail = mc3.text_input("Effective from (optional)", "the next class",
                                       key="mail_effective")
-            contact_mail = mc4.text_input("Contact line (optional)", "", key="mail_contact")
+            contact_mail = mc4.text_input("Contact line (optional)", mailer.DEFAULT_CONTACT, key="mail_contact")
             medium_mail = st.text_input(
                 "Batch/medium named in the mail (blank to leave it out)",
                 src_path.parent.name.title(), key="mail_medium",
@@ -2918,7 +3160,7 @@ if PAGE == "Email students":
                 help="Only groups into one Gmail window if the seating text is also "
                      "identical - which it is for a block-only venue, but not once "
                      "each student has their own seat number.")
-            contact_x = st.text_input("Contact line (optional)", "", key="mail_exam_contact")
+            contact_x = st.text_input("Contact line (optional)", mailer.DEFAULT_CONTACT, key="mail_exam_contact")
 
             names_x = "Name" in edf_mail.columns
             labels_x = {f"{r.Roll} - {r.Name}" if names_x else r.Roll: r.Roll
@@ -3201,7 +3443,7 @@ if PAGE == "Email students":
                     help="Inserted before 'Regards'. The rest of the wording is the "
                          "course's agreed text and is not edited here - see "
                          "`mailer.build_attendance_mail`.")
-                contact_a = st.text_input("Contact line (optional)", "",
+                contact_a = st.text_input("Contact line (optional)", mailer.DEFAULT_CONTACT,
                                           key="mail_att_contact")
                 if frames:
                     allstu = pd.concat(frames, ignore_index=True)

@@ -48,14 +48,15 @@ data; mail can be composed and rehearsed but never sent).
 
 ## Use it for your course
 
-Everything course-specific lives in one block at the top of
-[`config.py`](config.py): course code and title, session, institute,
-department, mail domain, lookup URL and the workbook names, with the
-instructors (`COURSE_INSTRUCTORS`) and halls (`ROOMS`, `BRANCH_GROUPS`) just
-below. No other file names the course. Edit that block, put your own
-workbooks in the project root (layouts in `sample_data/`), and the dashboard
-reads them instead of the demo set. The full checklist is under
-[Set it up for your course](#set-it-up-for-your-course).
+Open the dashboard and fill in **Maintenance › Course setup** once. On a
+fresh folder it opens there by itself. It asks for the course (code, title,
+session, dates, classes planned), the institute and student mail domain, the
+instructors, you as the TA who signs the mail, the attendance rules
+(threshold, benchmark, when notices go out, what an excused absence counts
+as), the classroom halls block by block, and your workbooks. Everything is
+saved in `course_settings.json` in the project folder, and every page, sheet,
+poster, PDF and mail reads it from there. No Python to edit. The full
+checklist is under [Set it up for your course](#set-it-up-for-your-course).
 
 ## Try it in two minutes (sample data)
 
@@ -79,21 +80,30 @@ root, so it is safe to run next to your own files (`--force` replaces them,
 
 ## Set it up for your course
 
-1. **`config.py`, top block.** Set `COURSE_CODE` and `COURSE_TITLE` (for
-   example `"PHY101"`, `"Mechanics"`), `SESSION`, `INSTITUTE`,
-   `INSTITUTE_SHORT`, `DEPARTMENT`, `EMAIL_DOMAIN` (student mail goes to
-   `<roll>@EMAIL_DOMAIN`) and, if you publish the lookup page, `LOOKUP_URL`.
-   The workbook names below follow `COURSE_CODE` automatically.
-2. **`config.py`, instructors.** `COURSE_INSTRUCTORS`: names are printed on
-   every sheet and page, addresses are Cc'd on every mail.
-3. **`config.py`, rooms.** `ROOMS` describes the classroom halls block by
-   block and `BRANCH_GROUPS` which branches sit together. The demo describes
-   two real halls; replace them with yours.
-4. **`mailer.py`, signatures.** `SIGNATURE` and `ATTENDANCE_SIGNATURE` say
-   who the mail is from.
-5. **Your workbooks.** Put them in the project root under the names in the
-   table (see `sample_data/` for the exact layouts) instead of running
-   `make_sample_data.py`.
+Everything is on the **Course setup** page (sidebar › Maintenance), in five
+tabs, saved with one button:
+
+1. **Course.** Code and title (for example `PHY101`, `Mechanics`), session,
+   first and last class, classes planned. The workbook names follow the code;
+   change the code later and the workbooks already in the folder are renamed
+   to match.
+2. **Institute & people.** Institute, short name, department, the student
+   mail domain (mail goes to `<roll>@domain`), the public lookup URL if you
+   publish one, the instructors (printed on every sheet, Cc'd on every mail),
+   and your name, roll number and email for the mail signatures.
+3. **Attendance rules.** Requirement (75%), class benchmark, the absences
+   that trigger each notice (5, 9, 13), and whether an excused absence is left
+   out or counted as present.
+4. **Halls.** One row per block: hall, block letter, rows, seats per row, the
+   wedge rows behind it, front or rear; plus the optional branch grouping.
+5. **Files.** Upload the register, roll list, TA duty workbook and exam-hall
+   plan. Each is checked the way the page that uses it reads it, then saved
+   under the name the dashboard expects (see `sample_data/` for the layouts).
+
+Every save is validated first (nothing is written if a value is wrong) and
+snapshots the previous settings and any file it replaces. The health check
+warns while settings are missing or still hold demo values.
+`course_settings.json` is git-ignored: it holds real names and addresses.
 
 `.gitignore` keeps every spreadsheet, CSV, PDF and `out/` in the project root
 out of git, so real student data cannot be committed by accident; only
@@ -148,7 +158,11 @@ mail the toolkit sends.
 .venv-$(uname -s)/bin/python -m pytest tests -q
 ```
 
-146 tests over the rules that matter (run `python make_sample_data.py` first): seats stay contiguous and inside their
+The suite always runs on the demo course (it points `COURSE_SETTINGS_FILE`
+at a file that doesn't exist), so run it in a clone with the sample data, not
+in the folder holding your course's workbooks.
+
+167 tests over the rules that matter (run `python make_sample_data.py` first): seats stay contiguous and inside their
 block, a reorder never moves anyone between blocks, wedge seats stay reserved
 unless asked for, a transition mail can never name a seat, nobody is mailed
 the same escalation level twice, snapshots round-trip, and drift detection
